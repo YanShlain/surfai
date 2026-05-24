@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Neon Flights</title>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <h1 class="logo">Neon Air</h1>
+      <p class="tagline">Select a flight to view the seat map</p>
+    </div>
+  </header>
+
+  <main class="container">
+    <section id="loading" class="panel status-panel">Loading flights…</section>
+    <section id="error" class="panel error-panel hidden" role="alert"></section>
+    <section id="flights" class="flight-grid hidden" aria-label="Available flights"></section>
+  </main>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/flights.js"></script>
+</body>
+</html>

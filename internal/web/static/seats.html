@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Seat Map — Neon Air</title>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="/" class="back-link">← Flights</a>
+      <h1 class="logo">Flight <span id="flight-id">—</span></h1>
+    </div>
+  </header>
+
+  <main class="container">
+    <div id="departed-banner" class="banner banner-warning hidden" role="status">
+      This flight has already departed. Seat map is read-only.
+    </div>
+
+    <section class="panel seat-toolbar">
+      <div class="toolbar-row">
+        <p id="flight-meta" class="flight-meta"></p>
+        <button type="button" id="refresh-btn" class="btn btn-secondary">Refresh map</button>
+      </div>
+      <ul class="legend" aria-label="Seat status legend">
+        <li><span class="swatch swatch-available"></span> Available</li>
+        <li><span class="swatch swatch-held"></span> Held</li>
+        <li><span class="swatch swatch-booked"></span> Booked</li>
+      </ul>
+    </section>
+
+    <section id="loading" class="panel status-panel">Loading seat map…</section>
+    <section id="error" class="panel error-panel hidden" role="alert"></section>
+
+    <section id="seat-map" class="seat-map-wrap hidden" aria-label="Seat map">
+      <div class="seat-map-scroll">
+        <div id="seat-grid" class="seat-grid"></div>
+      </div>
+      <p class="hint">Seat map is read-only in this phase. Booking opens in the next release.</p>
+    </section>
+  </main>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/seats.js"></script>
+</body>
+</html>
