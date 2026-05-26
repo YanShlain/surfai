@@ -5,28 +5,11 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"neon/internal/app"
 	"neon/internal/infrastructure/memory"
 )
-
-func newTestServer(t *testing.T) (*httptest.Server, *memory.SeatRepository) {
-	t.Helper()
-	repos, err := app.Bootstrap(memory.DefaultSeedConfig())
-	if err != nil {
-		t.Fatalf("bootstrap: %v", err)
-	}
-	seatRepo, ok := repos.Seats.(*memory.SeatRepository)
-	if !ok {
-		t.Fatal("expected *memory.SeatRepository")
-	}
-	srv := httptest.NewServer(app.NewRouter(repos))
-	t.Cleanup(srv.Close)
-	return srv, seatRepo
-}
 
 // I-A1: Server with seed — GET /flights — ≥2 flights
 func TestI_A1_GetFlightsReturnsAtLeastTwo(t *testing.T) {
