@@ -184,8 +184,9 @@
     updateSelectionSummary();
     payBtn.disabled = true;
     try {
+      const payloadSeatIds = [...selectedSeats].sort();
       const order = await patchJSON(`/orders/${encodeURIComponent(orderID)}/seats`, {
-        seat_ids: [...selectedSeats].sort(),
+        seat_ids: payloadSeatIds,
       });
       orderStatus = order.status;
       selectedSeats = new Set(order.held_seat_ids || []);
@@ -197,6 +198,8 @@
       return order;
     } finally {
       syncInFlight = false;
+      renderSeatGrid(gridEl, latestSeats, selectedSeats, toggleSeat, syncInFlight);
+      updatePayButton({ status: orderStatus, held_seat_ids: [...selectedSeats] });
       updateSelectionSummary();
     }
   }

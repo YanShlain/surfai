@@ -154,6 +154,16 @@
         return;
       }
 
+      const attemptsExhausted = (order.payment_failures ?? 0) >= MAX_ATTEMPTS_PER_METHOD;
+      const methodsRemaining = order.methods_remaining ?? 0;
+      if (attemptsExhausted && methodsRemaining > 0) {
+        showFeedback(
+          "Attempts exhausted for this code. Try a new payment method, then enter a different 5-digit code.",
+          "info"
+        );
+        return;
+      }
+
       const lastEvent = (order.payment_events || []).slice(-1)[0];
       const message = lastEvent?.message || "Payment failed. Try again with the same code.";
       showFeedback(message, "error");

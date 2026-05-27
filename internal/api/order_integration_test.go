@@ -761,8 +761,21 @@ func TestI_D6_FourthPaymentAttemptRejected(t *testing.T) {
 	if got.PaymentFailures != 3 {
 		t.Fatalf("payment_failures = %d, want 3", got.PaymentFailures)
 	}
+	if got.MethodsUsed != 1 {
+		t.Fatalf("methods_used = %d, want 1", got.MethodsUsed)
+	}
+	if got.MethodsRemaining != 2 {
+		t.Fatalf("methods_remaining = %d, want 2", got.MethodsRemaining)
+	}
 	if got.Status != "SEATS_HELD" {
 		t.Fatalf("status = %q, want SEATS_HELD", got.Status)
+	}
+	if len(got.PaymentEvents) == 0 {
+		t.Fatal("expected payment_events")
+	}
+	last := got.PaymentEvents[len(got.PaymentEvents)-1]
+	if last.Type != "attempts_exhausted" {
+		t.Fatalf("last event type = %q, want attempts_exhausted", last.Type)
 	}
 }
 
