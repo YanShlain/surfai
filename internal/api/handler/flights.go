@@ -9,7 +9,6 @@ import (
 
 	"neon/domain"
 	"neon/internal/api/dto"
-	"neon/internal/infrastructure/memory"
 )
 
 // FlightHandler serves flight catalog and seat map endpoints.
@@ -85,5 +84,5 @@ func (h *FlightHandler) GetSeatMap(c *gin.Context) {
 }
 
 func isNotFound(err error) bool {
-	return errors.Is(err, memory.ErrFlightNotFound)
+	return errors.Is(err, domain.ErrFlightNotFound)
 }
