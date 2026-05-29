@@ -1,5 +1,6 @@
 node_modules/
 test-results/
 playwright-report/
-.cursor/
+.cursor/*.log
+.cursor/debug-*
 *.log

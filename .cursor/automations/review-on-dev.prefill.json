@@ -1,0 +1,46 @@
+{
+  "name": "Neon — review loop on push (dev)",
+  "description": "After you push to dev, run /review-loop and update review state.",
+  "scope": "private",
+  "triggers": [
+    {
+      "trigger": {
+        "case": "git",
+        "value": {
+          "event": {
+            "case": "push",
+            "value": {
+              "repo": "YanShlain/Neon",
+              "branch": "dev"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "prompts": [
+    "/review-loop",
+    "",
+    "You are the Neon post-push review automation on branch dev.",
+    "",
+    "1. Read AGENTS.md and .cursor/skills/review-loop/SKILL.md",
+    "2. Orient: git log -3 --oneline; diff since docs/review_loop_state.md last_reviewed_commit; go test ./... -count=1 -timeout 120s",
+    "3. Run all 7 expert passes. Update docs/review_loop_state.md",
+    "4. If Critical/High findings exist: /review-loop fix with /developer (one finding → minimal fix → go test → one commit). Else report only.",
+    "5. End with Review loop summary (READY / NOT READY)",
+    "",
+    "Do not batch fixes. Do not change unrelated code."
+  ],
+  "actions": [],
+  "model": "default",
+  "gitConfig": {
+    "repos": [
+      {
+        "owner": "YanShlain",
+        "name": "Neon",
+        "branch": "dev"
+      }
+    ]
+  },
+  "memoryEnabled": false
+}

@@ -1,0 +1,44 @@
+{
+  "name": "Neon — review loop on push",
+  "description": "After commits are pushed to the default branch, run /review-loop and update review state. Fix phase uses /developer one-fix-one-commit rules only when Critical/High findings exist.",
+  "scope": "private",
+  "triggers": [
+    {
+      "trigger": {
+        "case": "git",
+        "value": {
+          "event": {
+            "case": "push",
+            "value": {
+              "repo": "YanShlain/Neon",
+              "branch": "main"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "prompts": [
+    "You are running the Neon post-push review automation.",
+    "",
+    "1. Read AGENTS.md and .cursor/skills/review-loop/SKILL.md",
+    "2. Run orient: git log -3 --oneline, diff since docs/review_loop_state.md last_reviewed_commit, go test ./... -count=1 -timeout 120s",
+    "3. Run full /review-loop (all 7 experts). Update docs/review_loop_state.md with findings and coverage.",
+    "4. If Critical or High findings exist AND the commit message or PR context implies auto-fix is allowed, run /review-loop fix using /developer (one finding → one minimal fix → go test → one commit). Otherwise report only.",
+    "5. End with Review loop summary (READY / NOT READY) and list open Critical/High items.",
+    "",
+    "Do not batch fixes. Do not change code unrelated to a finding. Do not commit doc-only state updates unless the user enabled that in the automation description."
+  ],
+  "actions": [],
+  "model": "default",
+  "gitConfig": {
+    "repos": [
+      {
+        "owner": "YanShlain",
+        "name": "Neon",
+        "branch": "main"
+      }
+    ]
+  },
+  "memoryEnabled": false
+}
