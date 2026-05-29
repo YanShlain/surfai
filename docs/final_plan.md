@@ -206,7 +206,7 @@ loop until terminal:
 | **Hold limit** | Up to full plane capacity per order |
 | **Payment methods** | UI **"Try new payment method"** required before a different 5-digit code (`POST .../payment/new-method`) |
 | **CREATED state** | User goes to seat picker after `POST /orders`; timer starts on order create; first `PATCH .../seats` with seats → `SEATS_HELD` |
-| **Real-time UI** | Request/response only — no polling, WebSocket, or SSE |
+| **Real-time UI** | SSE stream (`GET /orders/{id}/stream`) with 2s polling fallback; manual seat-map refresh on user action |
 | **Idempotency** | Not required for payment submit |
 | **Notifications** | UI-only confirmation |
 | **Departed flight** | Warning banner in UI; workflow unchanged |

@@ -47,8 +47,8 @@ Restart `go run ./cmd/api` after changing env vars.
 
 | Step | Action | Expected |
 |------|--------|----------|
-| 1 | Open http://localhost:8080 | Flight list shows **101** and **102** |
-| 2 | Click flight **101** | Seat map loads; order created (`localStorage`); timer ~15:00 starts |
+| 1 | Open http://localhost:8080 | Flight list shows **NA4821** and **NA1954** |
+| 2 | Click flight **NA4821** | Seat map loads; order created (`localStorage`); timer ~15:00 starts |
 | 3 | Click seat **1A** | Status **SEATS_HELD**; timer refreshes ~15:00 |
 | 4 | Click **Proceed to payment** | Payment page opens |
 | 5 | Enter `12345`, **Submit payment** | Status **CONFIRMED**; confirmation message |
@@ -86,15 +86,15 @@ Base URL: `http://localhost:8080/api/v1`
 
 Helper: save `order_id` from create response.
 
-**Windows note:** If `curl.exe -d '{\"flight_id\":\"101\"}'` returns `invalid request body`, use **single-quoted** JSON (`-d '{"flight_id":"101"}'`) or `Invoke-RestMethod` (examples in §3.11).
+**Windows note:** If `curl.exe -d '{\"flight_id\":\"NA4821\"}'` returns `invalid request body`, use **single-quoted** JSON (`-d '{"flight_id":"NA4821"}'`) or `Invoke-RestMethod` (examples in §3.11).
 
 ### 3.1 Create order and hold seats (setup)
 
 ```powershell
 $base = "http://localhost:8080/api/v1"
 
-# Create order on flight 101
-$create = curl.exe -s -X POST "$base/orders" -H "Content-Type: application/json" -d '{\"flight_id\":\"101\"}'
+# Create order on flight NA4821
+$create = curl.exe -s -X POST "$base/orders" -H "Content-Type: application/json" -d '{\"flight_id\":\"NA4821\"}'
 $create
 $orderId = ($create | ConvertFrom-Json).order_id
 
@@ -109,7 +109,7 @@ curl.exe -s -X PATCH "$base/orders/$orderId/seats" -H "Content-Type: application
 ```powershell
 curl.exe -s -X POST "$base/orders/$orderId/payment" -H "Content-Type: application/json" -d '{\"code\":\"12345\"}'
 curl.exe -s "$base/orders/$orderId"
-curl.exe -s "$base/flights/101/seats"
+curl.exe -s "$base/flights/NA4821/seats"
 ```
 
 **Expected:**
@@ -139,7 +139,7 @@ curl.exe -s -w "\nHTTP %{http_code}\n" -X POST "$base/orders/$orderId/payment" -
 ### 3.5 Payment without held seats (negative)
 
 ```powershell
-$create2 = curl.exe -s -X POST "$base/orders" -H "Content-Type: application/json" -d '{\"flight_id\":\"101\"}'
+$create2 = curl.exe -s -X POST "$base/orders" -H "Content-Type: application/json" -d '{\"flight_id\":\"NA4821\"}'
 $orderId2 = ($create2 | ConvertFrom-Json).order_id
 curl.exe -s -w "\nHTTP %{http_code}\n" -X POST "$base/orders/$orderId2/payment" -H "Content-Type: application/json" -d '{\"code\":\"12345\"}'
 ```
@@ -202,7 +202,7 @@ Run with the API up and `$env:PAYMENT_NEVER_FAIL = "1"` optional:
 
 ```powershell
 $base = "http://localhost:8080/api/v1"
-$o = Invoke-RestMethod -Method POST -Uri "$base/orders" -ContentType "application/json" -Body '{"flight_id":"101"}'
+$o = Invoke-RestMethod -Method POST -Uri "$base/orders" -ContentType "application/json" -Body '{"flight_id":"NA4821"}'
 Invoke-RestMethod -Method PATCH -Uri "$base/orders/$($o.order_id)/seats" -ContentType "application/json" -Body '{"seat_ids":["1A"]}'
 Invoke-RestMethod -Method POST -Uri "$base/orders/$($o.order_id)/payment" -ContentType "application/json" -Body '{"code":"12345"}'  # CONFIRMED
 ```
@@ -232,7 +232,7 @@ Set `$env:PAYMENT_ALWAYS_FAIL = "1"` for failure flows, or `$env:PAYMENT_FAIL_UN
 ### 6.1 UI — New payment method (S-3 partial)
 
 1. Hold seats by clicking seats on the map, then **Proceed to payment**.
-2. Open `/payment?flight_id=101&order_id=<id>`.
+2. Open `/payment?flight_id=NA4821&order_id=<id>`.
 3. Submit a 5-digit code (e.g. `12345`) that fails (with `PAYMENT_ALWAYS_FAIL=1`) three times.
 4. **Expected:** Submit is disabled after 3 failures; counter shows `3 / 3`; feedback reads "Attempts exhausted…".
 5. Enter a **different** 5-digit code (e.g. `77777`) — Submit becomes enabled.
@@ -261,7 +261,7 @@ Set `$env:PAYMENT_ALWAYS_FAIL = "1"` for failure flows, or `$env:PAYMENT_FAIL_UN
 
 ```powershell
 $base = "http://localhost:8080/api/v1"
-$o = Invoke-RestMethod -Method POST -Uri "$base/orders" -ContentType "application/json" -Body '{"flight_id":"101"}'
+$o = Invoke-RestMethod -Method POST -Uri "$base/orders" -ContentType "application/json" -Body '{"flight_id":"NA4821"}'
 Invoke-RestMethod -Method PATCH -Uri "$base/orders/$($o.order_id)/seats" -ContentType "application/json" -Body '{"seat_ids":["1A"]}'
 Invoke-RestMethod -Method POST -Uri "$base/orders/$($o.order_id)/payment/new-method" -ContentType "application/json" -Body '{}'
 # → 400 if no payment attempts yet; 200 after first method with failures

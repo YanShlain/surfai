@@ -100,6 +100,7 @@ flowchart TB
 | POST | `/api/v1/orders/{order_id}/payment` | Submit 5-digit payment code |
 | POST | `/api/v1/orders/{order_id}/cancel` | Cancel order |
 | GET | `/api/v1/orders/{order_id}` | Order status, timer, payment events |
+| GET | `/api/v1/orders/{order_id}/stream` | SSE order status (1s interval; UI falls back to 2s polling) |
 
 The static web UI is served from the API at `/` (flight list → seat map → payment → confirmation).
 
@@ -213,4 +214,4 @@ docs/
 | [docs/final_requierments.md](docs/final_requierments.md) | Functional requirements, state machine, scenarios |
 | [docs/final_plan.md](docs/final_plan.md) | Three-tier architecture, API contract, MVP phases, test matrix |
 | [docs/manual_tests.md](docs/manual_tests.md) | Step-by-step manual test scripts |
-| [docs/handoff.md](docs/handoff.md) | Developer handoff notes and key file index |
+| [docs/design_overview.md](docs/design_overview.md) | Detailed design reference and component map |

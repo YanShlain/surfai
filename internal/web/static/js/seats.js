@@ -200,7 +200,7 @@
     }
   }
 
-  function toggleSeat(seatID) {
+  async function toggleSeat(seatID) {
     if (orderStatus === "AWAITING_PAYMENT") {
       return;
     }
@@ -209,9 +209,15 @@
     } else {
       selectedSeats.add(seatID);
     }
-    renderSeatGrid(gridEl, latestSeats, selectedSeats, toggleSeat, false);
+    renderSeatGrid(gridEl, latestSeats, selectedSeats, toggleSeat, true);
     updateSelectionSummary();
-    updatePayButton({ status: orderStatus, held_seat_ids: [...selectedSeats] });
+    hideError(errorEl);
+    try {
+      await syncSeatsToServer();
+      await loadSeatMap(flightID);
+    } catch (err) {
+      showError(errorEl, err.message);
+    }
   }
 
   function updateSelectionSummary() {

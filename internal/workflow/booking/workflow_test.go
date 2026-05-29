@@ -436,7 +436,7 @@ func TestU_C4_AwaitingPaymentWhileValidationRuns(t *testing.T) {
 	hold := 30 * time.Second
 
 	scheduleUpdateSeats(t, env, 0, []string{"1A"}, nil)
-	schedulePaymentExpectQuery(t, env, time.Millisecond, 500*time.Millisecond, "12345", func(resp booking.StatusResponse) {
+	schedulePaymentExpectQuery(t, env, 100*time.Millisecond, 500*time.Millisecond, "12345", func(resp booking.StatusResponse) {
 		require.Equal(t, domain.OrderStatusAwaitingPayment, resp.Status)
 		require.Greater(t, resp.TimerRemainingSeconds, 0)
 	})
@@ -549,20 +549,22 @@ func TestU_D6_NewMethodRequiredForDifferentCode(t *testing.T) {
 	hold := 30 * time.Second
 
 	scheduleUpdateSeats(t, env, 0, []string{"1A"}, nil)
-	schedulePaymentAllowError(t, env, time.Millisecond, "11111")
-	schedulePaymentExpectReject(t, env, 400*time.Millisecond, "22222")
-	scheduleCancel(t, env, 800*time.Millisecond, nil)
+	schedulePaymentAllowError(t, env, 100*time.Millisecond, "11111")
+	schedulePaymentExpectReject(t, env, 3*time.Second, "22222")
+	scheduleCancel(t, env, 5*time.Second, nil)
 
 	executeBooking(env, "O1", memory.Flight1ID, hold)
 }
 
 // U-D5: A different 5-digit code can be used on any retry attempt.
 func TestU_D5_DifferentCodeSucceedsOnRetry(t *testing.T) {
+	t.Setenv("PAYMENT_VALIDATION_DELAY", "")
 	_, env := newSuiteWithRNG(t, &seqFailRNG{failUntil: 1})
-	hold := 30 * time.Second
+	hold := 15 * time.Minute
 
 	scheduleUpdateSeats(t, env, 0, []string{"1A"}, nil)
-	schedulePaymentChain(t, env, time.Millisecond, []string{"11111", "22222"})
+	schedulePayment(t, env, 100*time.Millisecond, "11111")
+	schedulePayment(t, env, 5*time.Second, "22222")
 
 	executeBooking(env, "O1", memory.Flight1ID, hold)
 
