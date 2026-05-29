@@ -70,144 +70,213 @@ func BookingWorkflow(ctx workflow.Context, input WorkflowInput) error {
 		return err
 	}
 
-	if err := workflow.SetUpdateHandler(ctx, UpdateUpdateSeats, func(updateCtx workflow.Context, req UpdateSeatsRequest) (StatusResponse, error) {
-		if state.Status.IsTerminal() {
-			return StatusResponse{}, temporal.NewApplicationError("order terminal", "terminal_order")
-		}
-		if state.Status == domain.OrderStatusAwaitingPayment {
-			return StatusResponse{}, temporal.NewApplicationError("payment in progress", "payment_in_progress")
-		}
-		if err := applySeatUpdate(activityCtx(updateCtx), &state, req.SeatIDs); err != nil {
-			return StatusResponse{}, err
-		}
-		notifyTimerReset()
-		return state.toResponse(workflow.Now(ctx)), nil
-	}); err != nil {
-		return err
-	}
-
-	if err := workflow.SetUpdateHandler(ctx, UpdateCancelOrder, func(updateCtx workflow.Context) (StatusResponse, error) {
-		if state.Status.IsTerminal() {
-			return state.toResponse(workflow.Now(ctx)), nil
-		}
-		if err := releaseHeldSeats(activityCtx(updateCtx), &state); err != nil {
-			return StatusResponse{}, err
-		}
-		state.Status = domain.OrderStatusCancelled
-		state.TimerDeadline = time.Time{}
-		notifyTimerReset()
-		return state.toResponse(workflow.Now(ctx)), nil
-	}); err != nil {
-		return err
-	}
-
-	if err := workflow.SetUpdateHandler(ctx, UpdateSubmitPayment, func(updateCtx workflow.Context, req SubmitPaymentRequest) (StatusResponse, error) {
-		if state.Status.IsTerminal() {
-			if state.Status == domain.OrderStatusConfirmed {
-				return StatusResponse{}, temporal.NewApplicationError("payment not allowed", "payment_not_allowed")
+	if err := workflow.SetUpdateHandler(ctx, UpdateUpdateSeats,
+		func(updateCtx workflow.Context, req UpdateSeatsRequest) (StatusResponse, error) {
+			if state.Status.IsTerminal() {
+				return StatusResponse{}, temporal.NewApplicationError("order terminal", "terminal_order")
 			}
-			return StatusResponse{}, temporal.NewApplicationError("order terminal", "terminal_order")
-		}
-		if state.Status != domain.OrderStatusSeatsHeld {
-			return StatusResponse{}, temporal.NewApplicationError("payment not allowed", "payment_not_allowed")
-		}
-		if !domain.IsValidPaymentCode(req.Code) {
-			return StatusResponse{}, temporal.NewApplicationError("invalid code", "invalid_payment_code")
-		}
-
-		if state.CurrentCode != "" && req.Code != state.CurrentCode {
-			if state.CurrentCodeFailures >= 1 {
-				state.MethodsUsed++
-				state.CurrentCodeFailures = 0
+			if state.Status == domain.OrderStatusAwaitingPayment {
+				return StatusResponse{}, temporal.NewApplicationError("payment in progress", "payment_in_progress")
 			}
-		}
-
-		state.CurrentCode = req.Code
-		state.Status = domain.OrderStatusAwaitingPayment
-		state.LastError = ""
-
-		err := workflow.ExecuteActivity(paymentActivityCtx(updateCtx),
-			(*Activities).ValidatePayment,
-			PaymentValidationInput{Code: req.Code},
-		).Get(updateCtx, nil)
-
-		if state.Status.IsTerminal() {
+			if err := applySeatUpdate(activityCtx(updateCtx), &state, req.SeatIDs); err != nil {
+				return StatusResponse{}, err
+			}
 			notifyTimerReset()
 			return state.toResponse(workflow.Now(ctx)), nil
-		}
+		},
+	); err != nil {
+		return err
+	}
 
-		if err == nil {
-			if confirmErr := workflow.ExecuteActivity(activityCtx(updateCtx), (*Activities).ConfirmSeats, SeatMutationInput{
-				FlightID: state.FlightID,
-				SeatIDs:  cloneStrings(state.HeldSeatIDs),
-				OrderID:  state.OrderID,
-			}).Get(updateCtx, nil); confirmErr != nil {
-				state.Status = domain.OrderStatusSeatsHeld
-				state.appendPaymentEvent(PaymentEvent{
-					Type:    PaymentEventValidationFailed,
-					Code:    state.CurrentCode,
-					Message: "seat confirmation failed",
-				})
-				state.LastError = "seat confirmation failed"
-				notifyTimerReset()
-				return state.toResponse(workflow.Now(ctx)), confirmErr
+	if err := workflow.SetUpdateHandler(ctx, UpdateCancelOrder,
+		func(updateCtx workflow.Context) (StatusResponse, error) {
+			if state.Status.IsTerminal() {
+				return state.toResponse(workflow.Now(ctx)), nil
 			}
-			state.Status = domain.OrderStatusConfirmed
+			if state.Status == domain.OrderStatusAwaitingPayment {
+				return StatusResponse{}, temporal.NewApplicationError("payment in progress", "payment_in_progress")
+			}
+			if err := releaseHeldSeats(activityCtx(updateCtx), &state); err != nil {
+				return StatusResponse{}, err
+			}
+			state.Status = domain.OrderStatusCancelled
 			state.TimerDeadline = time.Time{}
-			state.appendPaymentEvent(PaymentEvent{
-				Type: PaymentEventValidationSuccess,
-				Code: state.CurrentCode,
-			})
-			state.LastError = ""
 			notifyTimerReset()
 			return state.toResponse(workflow.Now(ctx)), nil
-		}
+		},
+	); err != nil {
+		return err
+	}
 
-		state.Status = domain.OrderStatusSeatsHeld
-
-		var appErr *temporal.ApplicationError
-		if errors.As(err, &appErr) && appErr.Type() == "invalid_payment_code" {
-			state.appendPaymentEvent(PaymentEvent{
-				Type:    PaymentEventFormatInvalid,
-				Code:    state.CurrentCode,
-				Message: "invalid payment code format",
-			})
-			state.LastError = "invalid payment code format"
-			notifyTimerReset()
-			return state.toResponse(workflow.Now(ctx)), nil
-		}
-
-		state.PaymentFailures++
-		state.CurrentCodeFailures++
-		state.appendPaymentEvent(PaymentEvent{
-			Type:    PaymentEventValidationFailed,
-			Code:    state.CurrentCode,
-			Message: "payment validation failed",
-		})
-
-		if state.CurrentCodeFailures >= maxAttemptsPerMethod {
-			code := state.CurrentCode
+	// Validator runs before the workflow task is created, allowing cheap early rejection.
+	if err := workflow.SetUpdateHandlerWithOptions(ctx, UpdateStartNewPaymentMethod,
+		func(updateCtx workflow.Context) (StatusResponse, error) {
 			state.MethodsUsed++
-			state.CurrentCodeFailures = 0
-			state.CurrentCode = ""
 			if state.MethodsUsed >= maxPaymentMethods {
-				if failErr := failOrderPaymentExhausted(activityCtx(updateCtx), &state, code); failErr != nil {
+				if failErr := failOrderPaymentExhausted(activityCtx(updateCtx), &state, state.CurrentCode); failErr != nil {
 					return StatusResponse{}, failErr
 				}
 				notifyTimerReset()
 				return state.toResponse(workflow.Now(ctx)), nil
 			}
+			code := state.CurrentCode
+			state.CurrentCode = ""
+			state.CurrentCodeFailures = 0
+			state.LastError = ""
 			state.appendPaymentEvent(PaymentEvent{
-				Type:    PaymentEventAttemptsExhausted,
+				Type:    PaymentEventNewMethodStarted,
 				Code:    code,
-				Message: fmt.Sprintf("code %s exhausted (%d/%d methods used)", code, state.MethodsUsed, maxPaymentMethods),
+				Message: "switched to a new payment method",
 			})
-		}
+			notifyTimerReset()
+			return state.toResponse(workflow.Now(ctx)), nil
+		},
+		workflow.UpdateHandlerOptions{
+			Validator: func(_ workflow.Context) error {
+				if state.Status.IsTerminal() {
+					return temporal.NewApplicationError("order terminal", "terminal_order")
+				}
+				if state.Status != domain.OrderStatusSeatsHeld {
+					return temporal.NewApplicationError("payment not allowed", "payment_not_allowed")
+				}
+				if state.CurrentCode == "" {
+					return temporal.NewApplicationError("no active payment method", "new_method_not_needed")
+				}
+				return nil
+			},
+		},
+	); err != nil {
+		return err
+	}
 
-		state.LastError = "payment validation failed"
-		notifyTimerReset()
-		return state.toResponse(workflow.Now(ctx)), nil
-	}); err != nil {
+	// Validator rejects invalid state and bad codes before a workflow task is created.
+	if err := workflow.SetUpdateHandlerWithOptions(ctx, UpdateSubmitPayment,
+		func(updateCtx workflow.Context, req SubmitPaymentRequest) (StatusResponse, error) {
+			// Implicit code switch: different code submitted after at least one failure.
+			if state.CurrentCode != "" && req.Code != state.CurrentCode && state.CurrentCodeFailures > 0 {
+				state.MethodsUsed++
+				if state.MethodsUsed >= maxPaymentMethods {
+					if failErr := failOrderPaymentExhausted(activityCtx(updateCtx), &state, state.CurrentCode); failErr != nil {
+						return StatusResponse{}, failErr
+					}
+					notifyTimerReset()
+					return state.toResponse(workflow.Now(ctx)), nil
+				}
+				state.CurrentCodeFailures = 0
+			}
+
+			state.CurrentCode = req.Code
+			state.Status = domain.OrderStatusAwaitingPayment
+			state.LastError = ""
+
+			err := workflow.ExecuteActivity(paymentActivityCtx(updateCtx),
+				(*Activities).ValidatePayment,
+				PaymentValidationInput{Code: req.Code},
+			).Get(updateCtx, nil)
+
+			// Timer may have fired and set a terminal status while the activity ran.
+			if state.Status.IsTerminal() {
+				notifyTimerReset()
+				return state.toResponse(workflow.Now(ctx)), nil
+			}
+
+			if err == nil {
+				confirmErr := workflow.ExecuteActivity(activityCtx(updateCtx), (*Activities).ConfirmSeats, SeatMutationInput{
+					FlightID: state.FlightID,
+					SeatIDs:  cloneStrings(state.HeldSeatIDs),
+					OrderID:  state.OrderID,
+				}).Get(updateCtx, nil)
+				if confirmErr != nil {
+					// CancelOrder may have fired concurrently; never overwrite a terminal state.
+					if !state.Status.IsTerminal() {
+						state.Status = domain.OrderStatusSeatsHeld
+					}
+					state.appendPaymentEvent(PaymentEvent{
+						Type:    PaymentEventValidationFailed,
+						Code:    state.CurrentCode,
+						Message: "seat confirmation failed",
+					})
+					state.LastError = "seat confirmation failed"
+					notifyTimerReset()
+					return state.toResponse(workflow.Now(ctx)), confirmErr
+				}
+				state.Status = domain.OrderStatusConfirmed
+				state.TimerDeadline = time.Time{}
+				state.appendPaymentEvent(PaymentEvent{
+					Type: PaymentEventValidationSuccess,
+					Code: state.CurrentCode,
+				})
+				state.LastError = ""
+				notifyTimerReset()
+				return state.toResponse(workflow.Now(ctx)), nil
+			}
+
+			state.Status = domain.OrderStatusSeatsHeld
+
+			var appErr *temporal.ApplicationError
+			if errors.As(err, &appErr) && appErr.Type() == "invalid_payment_code" {
+				state.appendPaymentEvent(PaymentEvent{
+					Type:    PaymentEventFormatInvalid,
+					Code:    state.CurrentCode,
+					Message: "invalid payment code format",
+				})
+				state.LastError = "invalid payment code format"
+				notifyTimerReset()
+				return state.toResponse(workflow.Now(ctx)), nil
+			}
+
+			state.PaymentFailures++
+			state.CurrentCodeFailures++
+			state.appendPaymentEvent(PaymentEvent{
+				Type:    PaymentEventValidationFailed,
+				Code:    state.CurrentCode,
+				Message: "payment validation failed",
+			})
+
+			if state.CurrentCodeFailures >= maxAttemptsPerMethod {
+				code := state.CurrentCode
+				state.MethodsUsed++
+				state.CurrentCodeFailures = 0
+				state.CurrentCode = ""
+				if state.MethodsUsed >= maxPaymentMethods {
+					if failErr := failOrderPaymentExhausted(activityCtx(updateCtx), &state, code); failErr != nil {
+						return StatusResponse{}, failErr
+					}
+					notifyTimerReset()
+					return state.toResponse(workflow.Now(ctx)), nil
+				}
+				state.appendPaymentEvent(PaymentEvent{
+					Type:    PaymentEventAttemptsExhausted,
+					Code:    code,
+					Message: fmt.Sprintf("code %s exhausted (%d/%d methods used)", code, state.MethodsUsed, maxPaymentMethods),
+				})
+			}
+
+			state.LastError = "payment validation failed"
+			notifyTimerReset()
+			return state.toResponse(workflow.Now(ctx)), nil
+		},
+		workflow.UpdateHandlerOptions{
+			Validator: func(_ workflow.Context, req SubmitPaymentRequest) error {
+				if state.Status.IsTerminal() {
+					if state.Status == domain.OrderStatusConfirmed {
+						return temporal.NewApplicationError("payment not allowed", "payment_not_allowed")
+					}
+					return temporal.NewApplicationError("order terminal", "terminal_order")
+				}
+				if state.Status != domain.OrderStatusSeatsHeld {
+					return temporal.NewApplicationError("payment not allowed", "payment_not_allowed")
+				}
+				if !domain.IsValidPaymentCode(req.Code) {
+					return temporal.NewApplicationError("invalid code", "invalid_payment_code")
+				}
+				if state.CurrentCode != "" && req.Code != state.CurrentCode && state.CurrentCodeFailures == 0 {
+					return temporal.NewApplicationError("new payment method required", "new_method_required")
+				}
+				return nil
+			},
+		},
+	); err != nil {
 		return err
 	}
 
@@ -308,21 +377,15 @@ func expireOrder(ctx workflow.Context, state *workflowState) error {
 func applySeatUpdate(ctx workflow.Context, state *workflowState, seatIDs []string) error {
 	state.LastError = ""
 
-	if len(state.HeldSeatIDs) > 0 {
-		if err := workflow.ExecuteActivity(ctx, (*Activities).ReleaseSeats, SeatMutationInput{
-			FlightID: state.FlightID,
-			SeatIDs:  cloneStrings(state.HeldSeatIDs),
-			OrderID:  state.OrderID,
-		}).Get(ctx, nil); err != nil {
-			return err
-		}
-	}
+	releaseIDs := cloneStrings(state.HeldSeatIDs)
+	holdIDs := cloneStrings(seatIDs)
 
-	if len(seatIDs) > 0 {
-		if err := workflow.ExecuteActivity(ctx, (*Activities).HoldSeats, SeatMutationInput{
-			FlightID: state.FlightID,
-			SeatIDs:  seatIDs,
-			OrderID:  state.OrderID,
+	if len(releaseIDs) > 0 || len(holdIDs) > 0 {
+		if err := workflow.ExecuteActivity(ctx, (*Activities).SwapSeats, SeatSwapInput{
+			FlightID:   state.FlightID,
+			OrderID:    state.OrderID,
+			ReleaseIDs: releaseIDs,
+			HoldIDs:    holdIDs,
 		}).Get(ctx, nil); err != nil {
 			return err
 		}

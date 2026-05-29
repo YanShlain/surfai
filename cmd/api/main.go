@@ -16,7 +16,7 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
 	ctx := context.Background()
-	application, err := app.BootstrapApp(ctx, memory.DefaultSeedConfig())
+	application, err := app.BootstrapApp(ctx, app.DefaultAPIOptions(memory.DefaultSeedConfig()))
 	if err != nil {
 		slog.Error("bootstrap failed", "error", err)
 		os.Exit(1)

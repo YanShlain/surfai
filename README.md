@@ -36,12 +36,13 @@ Neon lets anonymous users book seats on one or more flights. Each flight has its
 | `CONFIRMED` | Terminal success — seats booked |
 | `EXPIRED` | Terminal failure — timer reached zero |
 | `CANCELLED` | Terminal failure — user cancelled |
+| `PAYMENT_FAILED` | Terminal failure — all payment methods exhausted |
 
 ---
 
 ## Design overview
 
-Neon follows a **three-tier model** where Temporal owns orchestration in the service layer. The web frontend talks to a Go REST API; the API starts, signals, and queries Temporal workflows; activities perform side effects through repository interfaces.
+Neon follows a **three-tier model** where Temporal owns orchestration in the service layer. The web frontend talks to a Go REST API; the API starts, updates, and queries Temporal workflows; activities perform side effects through repository interfaces.
 
 ```mermaid
 flowchart TB
@@ -60,7 +61,7 @@ flowchart TB
   end
   UI[Web Frontend] --> R
   R --> TC
-  TC -->|start / signal / query| WF
+  TC -->|start / update / query| WF
   WF --> ACT
   ACT --> SI
   ACT --> FI
@@ -73,17 +74,19 @@ flowchart TB
 
 | Layer | Technology | Owns |
 |-------|------------|------|
-| **Presentation** | Go (Gin), Temporal Client | HTTP routes, DTOs, workflow start/signal/query, static web UI |
-| **Service** | Temporal Workflow + Activities | Order state machine, timer, payment retry rules, hold/release/book |
+| **Presentation** | Go (Gin), Temporal Client | HTTP routes, DTOs, workflow start/update/query, static web UI |
+| **Service** | Temporal Workflow + Activities | Order state machine, timer, 3×3 payment rules, atomic hold swap |
 | **Data** | Repository interfaces | Seat and flight inventory (in-memory for MVP) |
 
 ### Key design decisions
 
 - **Single workflow per order** — one `BookingWorkflow` owns the full lifecycle (timer, holds, payment, expiry). Workflow ID equals `order_id`.
 - **Read/write split for seats** — `GET /api/v1/flights/{flight_id}/seats` reads the seat repository directly; all seat mutations go through Temporal activities.
-- **Signals and queries** — `UpdateSeats`, `SubmitPayment`, `StartNewPaymentMethod`, `CancelOrder`; status via `GetStatus` query.
-- **Two binaries** — `cmd/api` (HTTP + embedded UI) and `cmd/worker` (Temporal worker). For local development, `cmd/api` bootstraps an embedded Temporal dev server and starts the worker automatically.
-- **MVP storage** — in-memory repositories seeded at startup (≥2 flights). Postgres and Redis are deferred to post-MVP.
+- **Atomic seat updates** — `SwapHold` activity replaces separate release+hold; rollback-safe on conflict.
+- **Workflow updates for payment** — `UpdateSubmitPayment` and `UpdateStartNewPaymentMethod` run synchronously (no signal polling).
+- **Hold reconciliation** — on startup, running workflows re-apply seat holds into memory after process restart.
+- **Two binaries** — `cmd/api` (HTTP + embedded worker by default) and `cmd/worker` (standalone). **In-memory inventory requires a single shared process** unless you add durable storage.
+- **MVP storage** — in-memory repositories seeded at startup. Postgres adapter planned via `SeatRepository` interface.
 
 ### API surface
 

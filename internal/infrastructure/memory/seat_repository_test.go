@@ -173,3 +173,42 @@ func TestU_A6_ConfirmHeldSeats(t *testing.T) {
 		}
 	}
 }
+
+// U-A7: SwapHold rolls back when new hold conflicts — prior holds remain.
+func TestU_A7_SwapHoldRollbackOnConflict(t *testing.T) {
+	_, seats := newTestRepos(t)
+	ctx := context.Background()
+
+	if err := seats.TryHold(ctx, memory.Flight1ID, []string{"1A"}, "O1"); err != nil {
+		t.Fatalf("TryHold O1: %v", err)
+	}
+	if err := seats.TryHold(ctx, memory.Flight1ID, []string{"1B"}, "O2"); err != nil {
+		t.Fatalf("TryHold O2: %v", err)
+	}
+
+	err := seats.SwapHold(ctx, memory.Flight1ID, "O1", []string{"1A"}, []string{"1B"})
+	if err == nil {
+		t.Fatal("expected SwapHold conflict")
+	}
+	if err != memory.ErrHoldConflict {
+		t.Fatalf("error = %v, want ErrHoldConflict", err)
+	}
+
+	got, err := seats.ListByFlight(ctx, memory.Flight1ID)
+	if err != nil {
+		t.Fatalf("ListByFlight: %v", err)
+	}
+	for _, id := range []string{"1A", "1B"} {
+		seat, ok := findSeat(got, id)
+		if !ok {
+			t.Fatalf("seat %s not found", id)
+		}
+		wantOrder := "O1"
+		if id == "1B" {
+			wantOrder = "O2"
+		}
+		if seat.Status != domain.SeatStatusHeld || seat.OrderID != wantOrder {
+			t.Fatalf("seat %s = %+v, want HELD by %s", id, seat, wantOrder)
+		}
+	}
+}

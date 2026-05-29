@@ -24,6 +24,7 @@ type OrderService interface {
 	UpdateSeats(ctx context.Context, orderID string, seatIDs []string) (booking.StatusResponse, error)
 	CancelOrder(ctx context.Context, orderID string) (booking.StatusResponse, error)
 	SubmitPayment(ctx context.Context, orderID string, code string) (booking.StatusResponse, error)
+	StartNewPaymentMethod(ctx context.Context, orderID string) (booking.StatusResponse, error)
 	GetStatus(ctx context.Context, orderID string) (booking.StatusResponse, error)
 }
 
@@ -105,6 +106,19 @@ func (h *OrderHandler) SubmitPayment(c *gin.Context) {
 	}
 
 	status, err := h.orders.SubmitPayment(ctx, orderID, req.Code)
+	if err != nil {
+		writeOrderError(c, orderID, err)
+		return
+	}
+	c.JSON(http.StatusOK, toOrderResponse(status))
+}
+
+// StartNewPaymentMethod handles POST /api/v1/orders/:order_id/payment/new-method.
+func (h *OrderHandler) StartNewPaymentMethod(c *gin.Context) {
+	ctx := c.Request.Context()
+	orderID := c.Param("order_id")
+
+	status, err := h.orders.StartNewPaymentMethod(ctx, orderID)
 	if err != nil {
 		writeOrderError(c, orderID, err)
 		return
@@ -224,6 +238,10 @@ func writeOrderError(c *gin.Context, orderID string, err error) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payment code"})
 	case errors.Is(err, temporal.ErrPaymentNotAllowed):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "payment not allowed"})
+	case errors.Is(err, temporal.ErrNewMethodNotNeeded):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "new payment method not needed"})
+	case errors.Is(err, temporal.ErrNewMethodRequired):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "new payment method required"})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 	}

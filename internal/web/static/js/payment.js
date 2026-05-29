@@ -1,5 +1,6 @@
 (function initPaymentPage() {
-  const MAX_PAYMENT_ATTEMPTS = 3;
+  const MAX_ATTEMPTS_PER_METHOD = 3;
+  const MAX_PAYMENT_METHODS = 3;
 
   const params = new URLSearchParams(window.location.search);
   const orderID = params.get("order_id") || getStoredOrderID();
@@ -11,6 +12,7 @@
   const timerDisplay = document.getElementById("timer-display");
   const heldSeatsEl = document.getElementById("held-seats");
   const attemptsUsedEl = document.getElementById("attempts-used");
+  const methodsUsedEl = document.getElementById("methods-used");
   const paymentEventsEl = document.getElementById("payment-events");
   const paymentPanel = document.getElementById("payment-panel");
   const confirmationPanel = document.getElementById("confirmation-panel");
@@ -20,11 +22,13 @@
   const paymentCode = document.getElementById("payment-code");
   const paymentFeedback = document.getElementById("payment-feedback");
   const submitBtn = document.getElementById("submit-btn");
+  const newMethodBtn = document.getElementById("new-method-btn");
   const errorEl = document.getElementById("error");
 
   let timerSeconds = 0;
   let timerHandle = null;
   let latestOrder = null;
+  let lastSubmittedCode = "";
   let orderStream = null;
   let pollHandle = null;
 
@@ -43,6 +47,12 @@
     event.preventDefault();
     submitPayment();
   });
+
+  if (newMethodBtn) {
+    newMethodBtn.addEventListener("click", () => {
+      startNewPaymentMethod();
+    });
+  }
 
   paymentCode.addEventListener("input", () => {
     if (latestOrder) {
@@ -68,26 +78,71 @@
     renderOrder(order);
   }
 
+  function methodsRemaining(order) {
+    const remaining = order.methods_remaining;
+    if (typeof remaining === "number") {
+      return remaining;
+    }
+    const used = order.methods_used ?? 0;
+    return Math.max(0, MAX_PAYMENT_METHODS - used);
+  }
+
+  function allMethodsExhausted(order) {
+    return methodsRemaining(order) <= 0 && lastMethodExhausted(order);
+  }
+
+  function lastMethodExhausted(order) {
+    const events = order.payment_events || [];
+    const last = events[events.length - 1];
+    return last && last.type === "attempts_exhausted" && methodsRemaining(order) <= 0;
+  }
+
   function updateFormControls(order) {
-    const failures = order.payment_failures ?? 0;
-    const attemptsExhausted = failures >= MAX_PAYMENT_ATTEMPTS;
     const typedCode = paymentCode.value.trim();
     const validInput = /^\d{5}$/.test(typedCode);
+    const exhausted = allMethodsExhausted(order);
+    const needsNewMethod =
+      lastSubmittedCode &&
+      typedCode &&
+      typedCode !== lastSubmittedCode &&
+      !methodSwitchAllowed(order);
 
-    const canSubmit = order.status === "SEATS_HELD" && validInput && !attemptsExhausted;
+    const canSubmit =
+      order.status === "SEATS_HELD" &&
+      validInput &&
+      !exhausted &&
+      !needsNewMethod;
 
     submitBtn.disabled = !canSubmit;
-    paymentCode.disabled = order.status !== "SEATS_HELD" || attemptsExhausted;
+    paymentCode.disabled = order.status !== "SEATS_HELD" || exhausted;
+
+    if (newMethodBtn) {
+      const canNewMethod =
+        order.status === "SEATS_HELD" &&
+        methodsRemaining(order) > 0 &&
+        ((order.payment_failures ?? 0) > 0 || needsNewMethod);
+      newMethodBtn.disabled = !canNewMethod;
+    }
+  }
+
+  function methodSwitchAllowed(order) {
+    const events = order.payment_events || [];
+    const last = events[events.length - 1];
+    return last && (last.type === "attempts_exhausted" || last.type === "new_method_started");
   }
 
   function renderOrder(order) {
     latestOrder = order;
     const failures = order.payment_failures ?? 0;
-    const attemptsExhausted = failures >= MAX_PAYMENT_ATTEMPTS;
+    const methodsUsed = order.methods_used ?? 0;
+    const remaining = methodsRemaining(order);
 
     orderStatusEl.textContent = order.status;
     heldSeatsEl.textContent = `Held seats: ${(order.held_seat_ids || []).join(", ") || "—"}`;
-    attemptsUsedEl.textContent = `${failures} / ${MAX_PAYMENT_ATTEMPTS}`;
+    attemptsUsedEl.textContent = `${Math.min(failures, MAX_ATTEMPTS_PER_METHOD)} / ${MAX_ATTEMPTS_PER_METHOD} on current code`;
+    if (methodsUsedEl) {
+      methodsUsedEl.textContent = `${methodsUsed} / ${MAX_PAYMENT_METHODS} (remaining: ${remaining})`;
+    }
     renderPaymentEvents(order.payment_events || []);
     timerSeconds = order.timer_remaining_seconds || 0;
     startTimer();
@@ -121,12 +176,7 @@
 
     paymentPanel.classList.remove("hidden");
     confirmationPanel.classList.add("hidden");
-
     updateFormControls(order);
-
-    if (attemptsExhausted) {
-      showFeedback("Payment attempts exhausted. The order has failed.", "error");
-    }
   }
 
   function feedbackForLastEvent(order) {
@@ -140,6 +190,31 @@
   function setFormDisabled(disabled) {
     submitBtn.disabled = disabled;
     paymentCode.disabled = disabled;
+    if (newMethodBtn) {
+      newMethodBtn.disabled = disabled;
+    }
+  }
+
+  async function startNewPaymentMethod() {
+    if (newMethodBtn?.disabled) {
+      return;
+    }
+    hideError(errorEl);
+    hideFeedback();
+    setFormDisabled(true);
+    try {
+      const order = await postJSON(`/orders/${encodeURIComponent(orderID)}/payment/new-method`, {});
+      lastSubmittedCode = "";
+      renderOrder(order);
+      showFeedback("New payment method ready. Enter a different 5-digit code.", "info");
+    } catch (err) {
+      showFeedback(err.message, "error");
+      await loadOrder();
+    } finally {
+      if (latestOrder?.status === "SEATS_HELD") {
+        updateFormControls(latestOrder);
+      }
+    }
   }
 
   async function submitPayment() {
@@ -158,6 +233,7 @@
     setFormDisabled(true);
     try {
       const order = await postJSON(`/orders/${encodeURIComponent(orderID)}/payment`, { code });
+      lastSubmittedCode = code;
       renderOrder(order);
 
       if (order.status === "CONFIRMED") {
@@ -209,7 +285,9 @@
       case "format_invalid":
         return "Invalid code format";
       case "attempts_exhausted":
-        return "All payment attempts exhausted";
+        return "Payment method exhausted";
+      case "new_method_started":
+        return "New payment method";
       case "rejected_by_timer":
         return "Payment rejected (timer expired)";
       default:
@@ -219,7 +297,7 @@
 
   function terminalMessage(status) {
     if (status === "PAYMENT_FAILED") {
-      return "Payment failed after 3 attempts. Your hold has been released.";
+      return "All payment methods failed. Your hold has been released.";
     }
     if (status === "EXPIRED") {
       return "Your hold expired. Seats have been released.";

@@ -11,27 +11,27 @@ import (
 )
 
 var (
-	// ErrFlightNotFound and ErrHoldConflict are aliases to the domain sentinels so
-	// callers can use either package for errors.Is checks.
 	ErrFlightNotFound = domain.ErrFlightNotFound
 	ErrHoldConflict   = domain.ErrHoldConflict
 	ErrInvalidConfirm = domain.ErrInvalidConfirm
-
-	ErrSeatNotFound = errors.New("seat not found")
+	ErrSeatNotFound   = errors.New("seat not found")
 )
+
+type flightInventory struct {
+	mu    sync.RWMutex
+	seats map[string]domain.Seat
+}
 
 // SeatRepository is an in-memory SeatRepository with per-flight locking.
 type SeatRepository struct {
-	mu       sync.RWMutex
-	flights  map[string]map[string]domain.Seat
-	flightMu map[string]*sync.Mutex
+	mu      sync.RWMutex
+	flights map[string]*flightInventory
 }
 
 // NewSeatRepository creates an empty seat repository.
 func NewSeatRepository() *SeatRepository {
 	return &SeatRepository{
-		flights:  make(map[string]map[string]domain.Seat),
-		flightMu: make(map[string]*sync.Mutex),
+		flights: make(map[string]*flightInventory),
 	}
 }
 
@@ -51,34 +51,33 @@ func (r *SeatRepository) initFlight(flightID string, rows, columns int) error {
 			Status:   domain.SeatStatusAvailable,
 		}
 	}
-	r.flights[flightID] = seats
-	r.flightMu[flightID] = &sync.Mutex{}
+	r.flights[flightID] = &flightInventory{seats: seats}
 	return nil
 }
 
-func (r *SeatRepository) flightLock(flightID string) (*sync.Mutex, error) {
+func (r *SeatRepository) flightInv(flightID string) (*flightInventory, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	mu, ok := r.flightMu[flightID]
+	inv, ok := r.flights[flightID]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrFlightNotFound, flightID)
 	}
-	return mu, nil
+	return inv, nil
 }
 
 // ListByFlight returns all seats for a flight sorted by seat ID.
 func (r *SeatRepository) ListByFlight(_ context.Context, flightID string) ([]domain.Seat, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	seats, ok := r.flights[flightID]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrFlightNotFound, flightID)
+	inv, err := r.flightInv(flightID)
+	if err != nil {
+		return nil, err
 	}
 
-	out := make([]domain.Seat, 0, len(seats))
-	for _, seat := range seats {
+	inv.mu.RLock()
+	defer inv.mu.RUnlock()
+
+	out := make([]domain.Seat, 0, len(inv.seats))
+	for _, seat := range inv.seats {
 		out = append(out, seat)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -88,37 +87,148 @@ func (r *SeatRepository) ListByFlight(_ context.Context, flightID string) ([]dom
 }
 
 // TryHold marks seats as HELD for the given order when all are available.
-func (r *SeatRepository) TryHold(ctx context.Context, flightID string, seatIDs []string, orderID string) error {
-	mu, err := r.flightLock(flightID)
+func (r *SeatRepository) TryHold(_ context.Context, flightID string, seatIDs []string, orderID string) error {
+	inv, err := r.flightInv(flightID)
 	if err != nil {
 		return err
 	}
-	mu.Lock()
-	defer mu.Unlock()
 
-	if err := r.checkAllAvailable(flightID, seatIDs); err != nil {
+	inv.mu.Lock()
+	defer inv.mu.Unlock()
+
+	if err := validateAvailable(inv.seats, seatIDs); err != nil {
 		return err
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	for _, seatID := range seatIDs {
-		seat := r.flights[flightID][seatID]
+		seat := inv.seats[seatID]
 		seat.Status = domain.SeatStatusHeld
 		seat.OrderID = orderID
-		r.flights[flightID][seatID] = seat
+		inv.seats[seatID] = seat
 	}
 	return nil
 }
 
-func (r *SeatRepository) checkAllAvailable(flightID string, seatIDs []string) error {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	seats, ok := r.flights[flightID]
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrFlightNotFound, flightID)
+// SwapHold atomically releases held seats and holds new ones for an order.
+func (r *SeatRepository) SwapHold(_ context.Context, flightID, orderID string, releaseIDs, holdIDs []string) error {
+	inv, err := r.flightInv(flightID)
+	if err != nil {
+		return err
 	}
+
+	inv.mu.Lock()
+	defer inv.mu.Unlock()
+
+	if err := validateRelease(inv.seats, releaseIDs, orderID); err != nil {
+		return err
+	}
+	if err := validateHoldAfterRelease(inv.seats, releaseIDs, holdIDs, orderID); err != nil {
+		return err
+	}
+
+	for _, seatID := range releaseIDs {
+		seat := inv.seats[seatID]
+		seat.Status = domain.SeatStatusAvailable
+		seat.OrderID = ""
+		inv.seats[seatID] = seat
+	}
+	for _, seatID := range holdIDs {
+		seat := inv.seats[seatID]
+		seat.Status = domain.SeatStatusHeld
+		seat.OrderID = orderID
+		inv.seats[seatID] = seat
+	}
+	return nil
+}
+
+// ApplyHold idempotently applies holds from workflow state during reconciliation.
+func (r *SeatRepository) ApplyHold(_ context.Context, flightID, orderID string, seatIDs []string) error {
+	if len(seatIDs) == 0 {
+		return nil
+	}
+	inv, err := r.flightInv(flightID)
+	if err != nil {
+		return err
+	}
+
+	inv.mu.Lock()
+	defer inv.mu.Unlock()
+
+	for _, seatID := range seatIDs {
+		seat, found := inv.seats[seatID]
+		if !found {
+			return fmt.Errorf("%w: %s", ErrSeatNotFound, seatID)
+		}
+		switch seat.Status {
+		case domain.SeatStatusAvailable:
+			seat.Status = domain.SeatStatusHeld
+			seat.OrderID = orderID
+			inv.seats[seatID] = seat
+		case domain.SeatStatusHeld:
+			if seat.OrderID != orderID {
+				return ErrHoldConflict
+			}
+		case domain.SeatStatusBooked:
+			if seat.OrderID != orderID {
+				return ErrHoldConflict
+			}
+		}
+	}
+	return nil
+}
+
+// Release returns held seats to AVAILABLE for the given order.
+func (r *SeatRepository) Release(_ context.Context, flightID string, seatIDs []string, orderID string) error {
+	if len(seatIDs) == 0 {
+		return nil
+	}
+	inv, err := r.flightInv(flightID)
+	if err != nil {
+		return err
+	}
+
+	inv.mu.Lock()
+	defer inv.mu.Unlock()
+
+	if err := validateRelease(inv.seats, seatIDs, orderID); err != nil {
+		return err
+	}
+	for _, seatID := range seatIDs {
+		seat := inv.seats[seatID]
+		seat.Status = domain.SeatStatusAvailable
+		seat.OrderID = ""
+		inv.seats[seatID] = seat
+	}
+	return nil
+}
+
+// Confirm transitions held seats to BOOKED for the given order.
+func (r *SeatRepository) Confirm(_ context.Context, flightID string, seatIDs []string, orderID string) error {
+	if len(seatIDs) == 0 {
+		return nil
+	}
+	inv, err := r.flightInv(flightID)
+	if err != nil {
+		return err
+	}
+
+	inv.mu.Lock()
+	defer inv.mu.Unlock()
+
+	for _, seatID := range seatIDs {
+		seat, found := inv.seats[seatID]
+		if !found {
+			return fmt.Errorf("%w: %s", ErrSeatNotFound, seatID)
+		}
+		if seat.Status != domain.SeatStatusHeld || seat.OrderID != orderID {
+			return ErrInvalidConfirm
+		}
+		seat.Status = domain.SeatStatusBooked
+		inv.seats[seatID] = seat
+	}
+	return nil
+}
+
+func validateAvailable(seats map[string]domain.Seat, seatIDs []string) error {
 	for _, seatID := range seatIDs {
 		seat, found := seats[seatID]
 		if !found {
@@ -131,23 +241,29 @@ func (r *SeatRepository) checkAllAvailable(flightID string, seatIDs []string) er
 	return nil
 }
 
-// Release returns held seats to AVAILABLE for the given order.
-func (r *SeatRepository) Release(ctx context.Context, flightID string, seatIDs []string, orderID string) error {
-	mu, err := r.flightLock(flightID)
-	if err != nil {
-		return err
+func validateHoldAfterRelease(seats map[string]domain.Seat, releaseIDs, holdIDs []string, orderID string) error {
+	releasing := make(map[string]struct{}, len(releaseIDs))
+	for _, seatID := range releaseIDs {
+		releasing[seatID] = struct{}{}
 	}
-	mu.Lock()
-	defer mu.Unlock()
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	seats, ok := r.flights[flightID]
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrFlightNotFound, flightID)
+	for _, seatID := range holdIDs {
+		seat, found := seats[seatID]
+		if !found {
+			return fmt.Errorf("%w: %s", ErrSeatNotFound, seatID)
+		}
+		if _, ok := releasing[seatID]; ok {
+			if seat.Status == domain.SeatStatusHeld && seat.OrderID == orderID {
+				continue
+			}
+		}
+		if seat.Status != domain.SeatStatusAvailable {
+			return ErrHoldConflict
+		}
 	}
+	return nil
+}
 
+func validateRelease(seats map[string]domain.Seat, seatIDs []string, orderID string) error {
 	for _, seatID := range seatIDs {
 		seat, found := seats[seatID]
 		if !found {
@@ -156,40 +272,6 @@ func (r *SeatRepository) Release(ctx context.Context, flightID string, seatIDs [
 		if seat.Status != domain.SeatStatusHeld || seat.OrderID != orderID {
 			return domain.ErrInvalidRelease
 		}
-		seat.Status = domain.SeatStatusAvailable
-		seat.OrderID = ""
-		seats[seatID] = seat
-	}
-	return nil
-}
-
-// Confirm transitions held seats to BOOKED for the given order.
-func (r *SeatRepository) Confirm(ctx context.Context, flightID string, seatIDs []string, orderID string) error {
-	mu, err := r.flightLock(flightID)
-	if err != nil {
-		return err
-	}
-	mu.Lock()
-	defer mu.Unlock()
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	seats, ok := r.flights[flightID]
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrFlightNotFound, flightID)
-	}
-
-	for _, seatID := range seatIDs {
-		seat, found := seats[seatID]
-		if !found {
-			return fmt.Errorf("%w: %s", ErrSeatNotFound, seatID)
-		}
-		if seat.Status != domain.SeatStatusHeld || seat.OrderID != orderID {
-			return ErrInvalidConfirm
-		}
-		seat.Status = domain.SeatStatusBooked
-		seats[seatID] = seat
 	}
 	return nil
 }

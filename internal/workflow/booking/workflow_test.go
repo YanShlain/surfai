@@ -1,11 +1,13 @@
 package booking_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
 	"neon/domain"
@@ -41,6 +43,29 @@ func (alwaysSucceedRNG) Float64() float64 { return 1 }
 type alwaysFailRNG struct{}
 
 func (alwaysFailRNG) Float64() float64 { return 0 }
+
+type failConfirmActivities struct {
+	*booking.Activities
+}
+
+func (f *failConfirmActivities) ConfirmSeats(_ context.Context, _ booking.SeatMutationInput) error {
+	return temporal.NewNonRetryableApplicationError("seat confirm failed", "seat_confirm_failed", nil)
+}
+
+func newSuiteWithConfirmFail(t *testing.T) (*workflowSuite, *testsuite.TestWorkflowEnvironment) {
+	t.Helper()
+	s := &workflowSuite{seats: memory.NewSeatRepository()}
+	flights := memory.NewFlightRepository()
+	require.NoError(t, memory.Seed(flights, s.seats, memory.DefaultSeedConfig()))
+
+	acts := &failConfirmActivities{
+		Activities: &booking.Activities{Seats: s.seats, PaymentRNG: alwaysSucceedRNG{}},
+	}
+	env := s.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(booking.BookingWorkflow)
+	env.RegisterActivity(acts)
+	return s, env
+}
 
 func scheduleUpdateSeats(t *testing.T, env *testsuite.TestWorkflowEnvironment, delay time.Duration, seatIDs []string, assertFn func(booking.StatusResponse)) {
 	t.Helper()
@@ -290,12 +315,23 @@ func schedulePaymentExpectReject(t *testing.T, env *testsuite.TestWorkflowEnviro
 	}, delay)
 }
 
+func schedulePaymentAllowError(t *testing.T, env *testsuite.TestWorkflowEnvironment, delay time.Duration, code string) {
+	t.Helper()
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(booking.UpdateSubmitPayment, fmt.Sprintf("pay-err-%d", time.Now().UnixNano()), &testsuite.TestUpdateCallback{
+			OnComplete: func(_ interface{}, err error) {
+				require.Error(t, err)
+			},
+		}, booking.SubmitPaymentRequest{Code: code})
+	}, delay)
+}
+
 func schedulePaymentChain(t *testing.T, env *testsuite.TestWorkflowEnvironment, delay time.Duration, codes []string) {
 	t.Helper()
 	for i, code := range codes {
 		code := code
 		env.RegisterDelayedCallback(func() {
-			env.UpdateWorkflow(booking.UpdateSubmitPayment, fmt.Sprintf("pay-chain-%s-%d", code, time.Now().UnixNano()), &testsuite.TestUpdateCallback{
+			env.UpdateWorkflow(booking.UpdateSubmitPayment, fmt.Sprintf("pay-chain-%d-%s", i, code), &testsuite.TestUpdateCallback{
 				OnReject: func(err error) {
 					require.NoError(t, err)
 				},
@@ -303,7 +339,7 @@ func schedulePaymentChain(t *testing.T, env *testsuite.TestWorkflowEnvironment, 
 					require.NoError(t, err)
 				},
 			}, booking.SubmitPaymentRequest{Code: code})
-		}, delay+time.Duration(i)*150*time.Millisecond)
+		}, delay+time.Duration(i)*400*time.Millisecond)
 	}
 }
 
@@ -385,8 +421,8 @@ func TestU_C3_PaymentAttemptsExhausted(t *testing.T) {
 				require.Equal(t, domain.SeatStatusHeld, seat.Status)
 			}
 		}
-	}, 500*time.Millisecond)
-	scheduleCancel(t, env, 510*time.Millisecond, nil)
+	}, 1500*time.Millisecond)
+	scheduleCancel(t, env, 1600*time.Millisecond, nil)
 
 	executeBooking(env, "O1", memory.Flight1ID, hold)
 }
@@ -503,6 +539,19 @@ func TestU_E2_PaymentSignalWithNoSeatsHeldRecordsEvent(t *testing.T) {
 		require.Empty(t, status.PaymentEvents)
 	}, 2*time.Millisecond)
 	scheduleCancel(t, env, 3*time.Millisecond, nil)
+
+	executeBooking(env, "O1", memory.Flight1ID, hold)
+}
+
+// U-D6: Different code with zero failures on current code requires new-method first.
+func TestU_D6_NewMethodRequiredForDifferentCode(t *testing.T) {
+	_, env := newSuiteWithConfirmFail(t)
+	hold := 30 * time.Second
+
+	scheduleUpdateSeats(t, env, 0, []string{"1A"}, nil)
+	schedulePaymentAllowError(t, env, time.Millisecond, "11111")
+	schedulePaymentExpectReject(t, env, 400*time.Millisecond, "22222")
+	scheduleCancel(t, env, 800*time.Millisecond, nil)
 
 	executeBooking(env, "O1", memory.Flight1ID, hold)
 }

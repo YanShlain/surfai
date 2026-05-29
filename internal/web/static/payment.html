@@ -28,13 +28,14 @@
     <section class="panel order-panel" id="order-panel">
       <p id="held-seats" class="selection-summary">Held seats: —</p>
       <div class="payment-counters">
-        <span>Attempts used: <strong id="attempts-used">0 / 3</strong></span>
+        <span>Attempts on current code: <strong id="attempts-used">0 / 3</strong></span>
+        <span>Methods used: <strong id="methods-used">0 / 3</strong></span>
       </div>
     </section>
 
     <section class="panel payment-panel" id="payment-panel">
       <h2 class="panel-title">Enter payment code</h2>
-      <p class="payment-hint">Use a 5-digit numeric code to complete your booking. After 3 failed attempts, the order fails and held seats are released.</p>
+      <p class="payment-hint">Use a 5-digit numeric code. You get up to 3 attempts per code and 3 different codes per order. After a code fails 3 times, use "Try new payment method" before entering a different code.</p>
       <form id="payment-form" class="payment-form">
         <label for="payment-code">Payment code</label>
         <input
@@ -49,6 +50,7 @@
           required
         />
         <div class="payment-actions">
+          <button type="button" id="new-method-btn" class="btn btn-secondary">Try new payment method</button>
           <button type="submit" id="submit-btn" class="btn btn-primary">Submit payment</button>
         </div>
       </form>

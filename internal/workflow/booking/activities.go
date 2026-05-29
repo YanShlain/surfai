@@ -31,11 +31,22 @@ type SeatMutationInput struct {
 	OrderID  string
 }
 
-// HoldSeats marks seats as held for an order.
-func (a *Activities) HoldSeats(ctx context.Context, in SeatMutationInput) error {
-	if err := a.Seats.TryHold(ctx, in.FlightID, in.SeatIDs, in.OrderID); err != nil {
+// SeatSwapInput atomically releases and holds seats for an order.
+type SeatSwapInput struct {
+	FlightID   string
+	OrderID    string
+	ReleaseIDs []string
+	HoldIDs    []string
+}
+
+// SwapSeats atomically releases prior holds and applies new ones.
+func (a *Activities) SwapSeats(ctx context.Context, in SeatSwapInput) error {
+	if err := a.Seats.SwapHold(ctx, in.FlightID, in.OrderID, in.ReleaseIDs, in.HoldIDs); err != nil {
 		if errors.Is(err, domain.ErrHoldConflict) {
 			return temporal.NewNonRetryableApplicationError("seat hold conflict", "hold_conflict", err)
+		}
+		if errors.Is(err, domain.ErrInvalidRelease) {
+			return temporal.NewNonRetryableApplicationError("seat release failed", "seat_release_failed", err)
 		}
 		return err
 	}

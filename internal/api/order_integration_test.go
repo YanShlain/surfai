@@ -26,7 +26,7 @@ func newTestApp(t *testing.T) *httptest.Server {
 		t.Setenv("HOLD_DURATION", "30s")
 	}
 
-	application, err := app.BootstrapApp(context.Background(), memory.DefaultSeedConfig())
+	application, err := app.BootstrapApp(context.Background(), app.DefaultAPIOptions(memory.DefaultSeedConfig()))
 	if err != nil {
 		t.Fatalf("bootstrap app: %v", err)
 	}
@@ -44,7 +44,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *memory.SeatRepository) {
 		t.Setenv("HOLD_DURATION", "30s")
 	}
 
-	application, err := app.BootstrapApp(context.Background(), memory.DefaultSeedConfig())
+	application, err := app.BootstrapApp(context.Background(), app.DefaultAPIOptions(memory.DefaultSeedConfig()))
 	if err != nil {
 		t.Fatalf("bootstrap app: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestI_B3_CancelOrderReleasesSeats(t *testing.T) {
 
 // I-B4: Expiry — EXPIRED after hold duration
 func TestI_B4_OrderExpiresAfterHoldDuration(t *testing.T) {
-	t.Setenv("HOLD_DURATION", "2s")
+	t.Setenv("HOLD_DURATION", "6s")
 	srv := newTestApp(t)
 
 	order := createOrder(t, srv, memory.Flight1ID)
@@ -257,7 +257,7 @@ func TestI_B4_OrderExpiresAfterHoldDuration(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	time.Sleep(3 * time.Second)
+	time.Sleep(7 * time.Second)
 
 	getResp, err := http.Get(srv.URL + "/api/v1/orders/" + order.OrderID)
 	if err != nil {
@@ -619,8 +619,8 @@ func TestI_D1_AttemptExhaustionReleasesSeats(t *testing.T) {
 
 // I-D2: S-4 Late payment — EXPIRED; payment rejected
 func TestI_D2_LatePaymentRejectedOnExpiry(t *testing.T) {
-	t.Setenv("HOLD_DURATION", "2s")
-	t.Setenv("PAYMENT_VALIDATION_DELAY", "5s")
+	t.Setenv("HOLD_DURATION", "6s")
+	t.Setenv("PAYMENT_VALIDATION_DELAY", "8s")
 	srv := newTestApp(t)
 
 	order := createOrder(t, srv, memory.Flight1ID)
@@ -638,7 +638,7 @@ func TestI_D2_LatePaymentRejectedOnExpiry(t *testing.T) {
 		}{body, code}
 	}()
 
-	time.Sleep(3 * time.Second)
+	time.Sleep(7 * time.Second)
 	got := getOrder(t, srv, order.OrderID)
 	if got.Status != "EXPIRED" {
 		t.Fatalf("status after expiry = %q, want EXPIRED", got.Status)
@@ -805,6 +805,23 @@ func TestI_D9_DifferentCodeWithoutNewMethodAllowed(t *testing.T) {
 	last := got.PaymentEvents[len(got.PaymentEvents)-1]
 	if last.Type != "validation_failed" {
 		t.Fatalf("last event type = %q, want validation_failed", last.Type)
+	}
+}
+
+// I-D10: new-method before any payment attempt is rejected.
+func TestI_D10_NewMethodBeforeFirstPaymentRejected(t *testing.T) {
+	srv := newTestApp(t)
+
+	order := createOrder(t, srv, memory.Flight1ID)
+	holdSeat(t, srv, order.OrderID)
+
+	resp, err := http.Post(srv.URL+"/api/v1/orders/"+order.OrderID+"/payment/new-method", "application/json", nil)
+	if err != nil {
+		t.Fatalf("post new-method: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("new-method status = %d, want 400", resp.StatusCode)
 	}
 }
 

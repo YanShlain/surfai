@@ -22,6 +22,7 @@ const (
 	PaymentEventValidationFailed  PaymentEventType = "validation_failed"
 	PaymentEventValidationSuccess PaymentEventType = "validation_success"
 	PaymentEventRejectedByTimer   PaymentEventType = "rejected_by_timer"
+	PaymentEventNewMethodStarted  PaymentEventType = "new_method_started"
 )
 
 // PaymentEvent is an append-only audit entry for payment attempts.
@@ -50,7 +51,7 @@ type UpdateSeatsRequest struct {
 	SeatIDs []string `json:"seat_ids"`
 }
 
-// SubmitPaymentRequest is the payload for SubmitPayment workflow signal.
+// SubmitPaymentRequest is the payload for SubmitPayment workflow update.
 type SubmitPaymentRequest struct {
 	Code string `json:"code"`
 }

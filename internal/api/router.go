@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"neon/domain"
 	"neon/internal/api/handler"
@@ -13,9 +14,17 @@ import (
 
 func requestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		reqID := c.GetHeader("X-Request-ID")
+		if reqID == "" {
+			reqID = uuid.NewString()
+		}
+		c.Set("request_id", reqID)
+		c.Header("X-Request-ID", reqID)
+
 		start := time.Now()
 		c.Next()
 		slog.Info("http",
+			"request_id", reqID,
 			"method", c.Request.Method,
 			"path", c.Request.URL.Path,
 			"status", c.Writer.Status(),
@@ -43,6 +52,7 @@ func NewRouter(flights domain.FlightRepository, seats domain.SeatRepository, ord
 		v1.POST("/orders", oh.CreateOrder)
 		v1.PATCH("/orders/:order_id/seats", oh.UpdateSeats)
 		v1.POST("/orders/:order_id/cancel", oh.CancelOrder)
+		v1.POST("/orders/:order_id/payment/new-method", oh.StartNewPaymentMethod)
 		v1.POST("/orders/:order_id/payment", oh.SubmitPayment)
 		v1.GET("/orders/:order_id", oh.GetOrder)
 		v1.GET("/orders/:order_id/stream", oh.StreamOrder)

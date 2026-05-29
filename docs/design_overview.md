@@ -72,7 +72,8 @@ flowchart TB
 | Create order | `ExecuteWorkflow` | `POST /orders` |
 | Update seats | Workflow update `UpdateSeats` | `PATCH /orders/{id}/seats` |
 | Cancel order | Workflow update `CancelOrder` | `POST /orders/{id}/cancel` |
-| Submit payment | Signal `SubmitPayment` + poll `GetStatus` | `POST /orders/{id}/payment` |
+| Submit payment | Workflow update `SubmitPayment` | `POST /orders/{id}/payment` |
+| New payment method | Workflow update `StartNewPaymentMethod` | `POST /orders/{id}/payment/new-method` |
 | Read order | Query `GetStatus` | `GET /orders/{id}`, SSE stream |
 
 Workflow ID equals `order_id` (UUID, 1:1 mapping).
@@ -135,9 +136,11 @@ Inventory is isolated per `flight_id`. Seat `1A` on flight `NA4821` is independe
 | Code format | Exactly 5 digits (`0`–`9`) |
 | Validation timeout | 10 seconds (activity `StartToCloseTimeout`) |
 | Simulated failure rate | 15% (override via `PAYMENT_*` env vars in dev/test) |
-| Max failures | **3 total** across all submitted codes |
-| Different codes | Allowed without a separate "new method" step — each failure increments `payment_failures` |
-| Terminal on exhaustion | After the 3rd failure → `PAYMENT_FAILED`, seats released |
+| Attempts per method | **3** failures per 5-digit code |
+| Methods per order | **3** different codes (`methods_used` / `methods_remaining` in API) |
+| New method | `POST .../payment/new-method` or auto-switch after a code is exhausted |
+| Code switch mid-method | Different code with zero failures → HTTP 400; after ≥1 failure on current code → allowed |
+| Terminal on exhaustion | After 3 codes × 3 failures each → `PAYMENT_FAILED`, seats released |
 
 ---
 
@@ -164,7 +167,7 @@ sequenceDiagram
 
   UI->>API: PATCH /orders/{id}/seats { seat_ids: ["1A"] }
   API->>TC: UpdateWorkflow(UpdateSeats)
-  WF->>SR: HoldSeats
+  WF->>SR: SwapSeats
   Note over WF: Timer reset to 15m
   API-->>UI: 200 { status: SEATS_HELD, timer_remaining_seconds }
 
