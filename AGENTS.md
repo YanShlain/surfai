@@ -6,6 +6,8 @@ This project uses **Cursor Agent Skills** for implementation and quality gates.
 
 | Invoke | Purpose |
 |--------|---------|
+| `/deliver-ready` | Fix issues from `docs/final_review.md`, then 7 subagent experts; one delivery cycle |
+| `/loop /deliver-ready` | Repeat until READY (self-paced) |
 | `/review-loop` | Full multi-expert review cycle |
 | `/review-loop fix` | Fix open Critical/High findings |
 | `/review-loop verify` | Re-run tests and update coverage state |
@@ -47,10 +49,9 @@ Review loop exits **READY** when:
 
 ```
 1. Implement feature     → /developer
-2. Review                → /review-loop
-3. Fix gaps              → /review-loop fix
-4. Confirm               → /review-loop verify
-5. (Optional) CI watch   → /loop 15m /review-loop verify
+2. Delivery loop         → /loop /deliver-ready   (fix final_review gaps → subagent review → repeat)
+3. Or manual review      → /review-loop → /review-loop fix → /review-loop verify
+4. (Optional) CI watch   → /loop 15m /review-loop verify
 ```
 
 ## Cursor Automations (on commit / push)

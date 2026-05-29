@@ -33,6 +33,20 @@ You are the Neon post-push review automation.
 - Commit unless fixing Critical/High (state file updates are OK without commit if review-only)
 ```
 
+## Optional: delivery loop (fix + subagent review until READY)
+
+```
+/deliver-ready
+```
+
+Or self-paced until gates pass:
+
+```
+/loop /deliver-ready
+```
+
+Same repo context as above; reads `docs/final_review.md` first, fixes Critical/High, then runs seven dedicated read-only expert subagents. See `.cursor/skills/review-loop/SKILL.md` **Deliver-ready loop**.
+
 ## Optional: review-only (no auto-fix)
 
 Use this variant if you only want a report after each push:

@@ -1,6 +1,6 @@
 # Review Loop State
 
-> Maintained by `/review-loop`. Do not delete — agents read this for continuity between cycles.
+> Maintained by `/review-loop` and `/deliver-ready`. Do not delete — agents read this for continuity between cycles.
 
 ## Meta
 
@@ -9,7 +9,7 @@
 | **Last cycle** | _not run_ |
 | **Last reviewed commit** | _none_ |
 | **Verdict** | NOT READY (expert review pending) |
-| **Loop mode** | manual |
+| **Loop mode** | manual — use `/loop /deliver-ready` for delivery until READY |
 
 ## Test baseline
 

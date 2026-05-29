@@ -3,8 +3,8 @@ name: review-loop
 description: >-
   Multi-expert review loop for Neon: architect, Go, Temporal, database, UI, QA,
   and docs experts verify requirements, tests, and documentation. Runs fix-verify
-  cycles until gates pass. Use with /review-loop, /loop, or when the user asks
-  for expert review, quality gate, or review loop.
+  cycles until gates pass. Use with /review-loop, /deliver-ready, /loop, or when
+  the user asks for expert review, quality gate, delivery-ready loop, or review loop.
 ---
 
 # Neon Review Loop
@@ -17,6 +17,7 @@ Orchestrates sequential expert reviews, triage, optional fixes, and re-verificat
 |----------|---------|
 | [docs/final_requierments.md](../../docs/final_requierments.md) | Locked functional requirements, scenarios S-1..S-5 |
 | [docs/final_plan.md](../../docs/final_plan.md) | Architecture, API contract, test matrix §9 |
+| [docs/final_review.md](../../docs/final_review.md) | Prior QA audit — reconcile before fix phase |
 | [docs/review_loop_state.md](../../docs/review_loop_state.md) | Loop state, open findings, coverage map |
 | [README.md](../../README.md) | Public overview — must match implementation |
 
@@ -24,6 +25,8 @@ Orchestrates sequential expert reviews, triage, optional fixes, and re-verificat
 
 | Command | Behavior |
 |---------|----------|
+| `/deliver-ready` | **Delivery loop (one cycle):** reconcile `final_review.md` → fix Critical/High → dedicated subagent review → verify |
+| `/loop /deliver-ready` | Repeat `/deliver-ready` until READY or user stops |
 | `/review-loop` | Full cycle once (review → triage → fix if asked → verify) |
 | `/review-loop fix` | Triage open findings and fix via [developer-fix](roles/developer-fix.md) |
 | `/review-loop verify` | Re-run tests + QA matrix only; update state |
@@ -121,9 +124,90 @@ Only when user asked for fixes, or Critical/High findings exist:
 | Tests fail or Medium findings only | Report summary; if `/loop` active, schedule next wake (dynamic: after fix or 1h fallback) |
 | User said review-only | Stop after step 8; do not fix |
 
-## Parallel expert mode (optional)
+## Deliver-ready loop
 
-For large changes, launch read-only explore agents in parallel — one per role — then merge into state. Sequential mode is default (lower token cost, fewer duplicates).
+Use **`/deliver-ready`** (or **`/loop /deliver-ready`**) when the goal is submission-ready code. This mode **always fixes first, then reviews with dedicated subagents**.
+
+Command file: [`.cursor/commands/deliver-ready.md`](../../commands/deliver-ready.md)
+
+### Deliver-ready checklist
+
+```
+Deliver-ready progress:
+- [ ] A. Reconcile final_review.md → state
+- [ ] B. Fix Critical/High (developer-fix + /developer)
+- [ ] C. Expert review via 7 dedicated subagents
+- [ ] D. Triage + update state + final_review.md
+- [ ] E. Verify (tests + S-1..S-5)
+- [ ] F. Loop decision (READY / NOT READY)
+```
+
+### A. Reconcile `docs/final_review.md`
+
+1. Read **Issues Summary** and **Edge Case Findings** in `docs/final_review.md`.
+2. Run `go test ./... -count=1 -timeout 120s` — record baseline in state.
+3. For each documented issue, **verify current behavior** (grep, read test, run targeted test). Do not trust stale prose.
+4. **Resolved** → move to `Resolved findings` in state with test/commit evidence; note in `final_review.md` if editing that doc this cycle.
+5. **Still open** → add to `Open findings` in state. Prefer IDs `FR-1`, `FR-2`, … matching final_review issue numbers; new gaps use `[ROLE]-[N]`.
+6. If `final_review.md` verdict contradicts green tests and fixed code, treat reconciliation as the source of truth until step D refreshes the doc.
+
+### B. Fix phase (mandatory for deliver-ready)
+
+Unlike `/review-loop`, deliver-ready **always** runs fix when Critical/High exist:
+
+1. Follow [roles/developer-fix.md](roles/developer-fix.md) + `/developer`.
+2. Fix order: failing tests → requirements gaps → concurrency/data → architecture → docs/UI.
+3. One finding → minimal diff → `go test ./...` → **commit** → update state → next finding.
+4. After all Critical/High from reconciliation are addressed, proceed to review even if Medium/Low remain (report them; they do not block READY unless user says otherwise).
+
+### C. Dedicated subagent review (mandatory)
+
+**Do not** run all seven expert passes inline in the parent agent. Launch **seven parallel Task subagents** — one per role — then merge results.
+
+| Subagent | Role file | `description` param |
+|----------|-----------|---------------------|
+| 1 | [roles/architect.md](roles/architect.md) | `Deliver review: architect` |
+| 2 | [roles/go-expert.md](roles/go-expert.md) | `Deliver review: go expert` |
+| 3 | [roles/temporal-expert.md](roles/temporal-expert.md) | `Deliver review: temporal expert` |
+| 4 | [roles/database-expert.md](roles/database-expert.md) | `Deliver review: database expert` |
+| 5 | [roles/ui-expert.md](roles/ui-expert.md) | `Deliver review: ui expert` |
+| 6 | [roles/qa-expert.md](roles/qa-expert.md) | `Deliver review: qa expert` |
+| 7 | [roles/docs-expert.md](roles/docs-expert.md) | `Deliver review: docs expert` |
+
+**Subagent settings:** `subagent_type: generalPurpose`, `readonly: true`.
+
+**Subagent prompt template** (fill `[ROLE]` and role file path):
+
+```
+You are the Neon [ROLE] expert for a delivery review.
+
+1. Read your role file: .cursor/skills/review-loop/roles/<role>.md
+2. Read docs/final_requierments.md, docs/final_plan.md, docs/review_loop_state.md, README.md
+3. Review the codebase per your role focus. Run tests if your role requires it.
+4. Return ONLY:
+   - Grade: A/B/C/D/F
+   - Findings list (use finding format from .cursor/skills/review-loop/SKILL.md)
+   - One-line top issue
+   - READY or NOT READY from your role's perspective
+
+Do NOT implement fixes. Do NOT commit.
+```
+
+Parent agent: wait for all seven, dedupe in step D, update **Expert summary** table in state.
+
+### D. Triage + doc refresh
+
+1. Deduplicate findings; Critical/High block delivery.
+2. Update `docs/review_loop_state.md` (open/resolved, scenarios, test matrix snapshot).
+3. **Docs expert output** drives refresh of `docs/final_review.md` when verdict changes (new date, test results, verdict READY/NOT READY). Archive stale claims; do not leave contradictory failure lists.
+
+### E–F. Verify and loop decision
+
+Same as steps **10–11** above. On **READY**, set state `Verdict: READY`, update `final_review.md`, stop. On **NOT READY** with Critical/High, if `/loop /deliver-ready` is active: fix → verify → re-arm next wake (see `/loop` skill; PowerShell `Start-Sleep` on Windows).
+
+## Parallel expert mode (optional for `/review-loop` only)
+
+For `/review-loop` on large changes, you may launch read-only explore agents in parallel. **`/deliver-ready` always uses dedicated subagents (step C).** Sequential inline review remains the default for plain `/review-loop`.
 
 ## Reporting
 
