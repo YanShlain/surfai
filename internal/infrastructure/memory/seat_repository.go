@@ -189,11 +189,17 @@ func (r *SeatRepository) Release(_ context.Context, flightID string, seatIDs []s
 	inv.mu.Lock()
 	defer inv.mu.Unlock()
 
-	if err := validateRelease(inv.seats, seatIDs, orderID); err != nil {
-		return err
-	}
 	for _, seatID := range seatIDs {
-		seat := inv.seats[seatID]
+		seat, found := inv.seats[seatID]
+		if !found {
+			return fmt.Errorf("%w: %s", ErrSeatNotFound, seatID)
+		}
+		if seat.Status == domain.SeatStatusAvailable {
+			continue
+		}
+		if seat.Status != domain.SeatStatusHeld || seat.OrderID != orderID {
+			return domain.ErrInvalidRelease
+		}
 		seat.Status = domain.SeatStatusAvailable
 		seat.OrderID = ""
 		inv.seats[seatID] = seat

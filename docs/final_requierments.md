@@ -42,6 +42,7 @@ A multi-flight seat reservation and payment system orchestrated by **Temporal**.
 4.  `CONFIRMED`: Terminal success.
 5.  `EXPIRED`: Terminal failure (timer hit zero).
 6.  `CANCELLED`: Terminal failure (user abandoned).
+7.  `PAYMENT_FAILED`: Terminal failure (all payment methods exhausted — 3 codes × 3 attempts).
 
 ## 5. Scenarios
 

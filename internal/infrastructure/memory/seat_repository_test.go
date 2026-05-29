@@ -174,6 +174,34 @@ func TestU_A6_ConfirmHeldSeats(t *testing.T) {
 	}
 }
 
+// U-A8: Release is idempotent when seats are already available.
+func TestU_A8_ReleaseIdempotent(t *testing.T) {
+	_, seats := newTestRepos(t)
+	ctx := context.Background()
+
+	if err := seats.TryHold(ctx, memory.Flight1ID, []string{"1A"}, "O1"); err != nil {
+		t.Fatalf("TryHold: %v", err)
+	}
+	if err := seats.Release(ctx, memory.Flight1ID, []string{"1A"}, "O1"); err != nil {
+		t.Fatalf("first Release: %v", err)
+	}
+	if err := seats.Release(ctx, memory.Flight1ID, []string{"1A"}, "O1"); err != nil {
+		t.Fatalf("second Release: %v", err)
+	}
+
+	got, err := seats.ListByFlight(ctx, memory.Flight1ID)
+	if err != nil {
+		t.Fatalf("ListByFlight: %v", err)
+	}
+	seat, ok := findSeat(got, "1A")
+	if !ok {
+		t.Fatal("seat 1A not found")
+	}
+	if seat.Status != domain.SeatStatusAvailable {
+		t.Fatalf("status = %q, want AVAILABLE", seat.Status)
+	}
+}
+
 // U-A7: SwapHold rolls back when new hold conflicts — prior holds remain.
 func TestU_A7_SwapHoldRollbackOnConflict(t *testing.T) {
 	_, seats := newTestRepos(t)

@@ -290,6 +290,31 @@ func TestU_B7_IsolatedFlightsAllowSameSeatID(t *testing.T) {
 	executeBooking(env2, "O2", memory.Flight2ID, hold)
 }
 
+func scheduleStartNewPaymentMethod(t *testing.T, env *testsuite.TestWorkflowEnvironment, delay time.Duration) {
+	t.Helper()
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(booking.UpdateStartNewPaymentMethod, fmt.Sprintf("new-method-%d", time.Now().UnixNano()), &testsuite.TestUpdateCallback{
+			OnReject: func(err error) {
+				require.NoError(t, err)
+			},
+			OnComplete: func(_ interface{}, err error) {
+				require.NoError(t, err)
+			},
+		}, nil)
+	}, delay)
+}
+
+func scheduleStartNewPaymentMethodExpectReject(t *testing.T, env *testsuite.TestWorkflowEnvironment, delay time.Duration) {
+	t.Helper()
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(booking.UpdateStartNewPaymentMethod, fmt.Sprintf("new-method-reject-%d", time.Now().UnixNano()), &testsuite.TestUpdateCallback{
+			OnComplete: func(_ interface{}, err error) {
+				require.Error(t, err)
+			},
+		}, nil)
+	}, delay)
+}
+
 func schedulePayment(t *testing.T, env *testsuite.TestWorkflowEnvironment, delay time.Duration, code string) {
 	t.Helper()
 	env.RegisterDelayedCallback(func() {
@@ -556,18 +581,89 @@ func TestU_D6_NewMethodRequiredForDifferentCode(t *testing.T) {
 	executeBooking(env, "O1", memory.Flight1ID, hold)
 }
 
-// U-D5: A different 5-digit code can be used on any retry attempt.
+// U-D5: After a failed attempt, new-method then a different code can succeed.
 func TestU_D5_DifferentCodeSucceedsOnRetry(t *testing.T) {
 	t.Setenv("PAYMENT_VALIDATION_DELAY", "")
 	_, env := newSuiteWithRNG(t, &seqFailRNG{failUntil: 1})
-	hold := 15 * time.Minute
+	hold := 30 * time.Second
 
 	scheduleUpdateSeats(t, env, 0, []string{"1A"}, nil)
 	schedulePayment(t, env, 100*time.Millisecond, "11111")
-	schedulePayment(t, env, 5*time.Second, "22222")
+	scheduleStartNewPaymentMethod(t, env, 2*time.Second)
+	schedulePayment(t, env, 2500*time.Millisecond, "22222")
 
 	executeBooking(env, "O1", memory.Flight1ID, hold)
 
 	status := queryStatus(t, env)
 	require.Equal(t, domain.OrderStatusConfirmed, status.Status)
+}
+
+// U-D1: StartNewPaymentMethod after failures resets attempt counter for the next code.
+func TestU_D1_StartNewPaymentMethodResetsAttempts(t *testing.T) {
+	_, env := newSuiteWithRNG(t, alwaysFailRNG{})
+	hold := 30 * time.Second
+
+	scheduleUpdateSeats(t, env, 0, []string{"1A"}, nil)
+	schedulePayment(t, env, time.Millisecond, "11111")
+	scheduleStartNewPaymentMethod(t, env, 500*time.Millisecond)
+	env.RegisterDelayedCallback(func() {
+		status := queryStatus(t, env)
+		require.Equal(t, domain.OrderStatusSeatsHeld, status.Status)
+		require.Equal(t, 1, status.MethodsUsed)
+		require.Equal(t, 2, status.MethodsRemaining)
+		require.NotEmpty(t, status.PaymentEvents)
+		require.Equal(t, booking.PaymentEventNewMethodStarted, status.PaymentEvents[len(status.PaymentEvents)-1].Type)
+	}, 600*time.Millisecond)
+	scheduleCancel(t, env, 800*time.Millisecond, nil)
+
+	executeBooking(env, "O1", memory.Flight1ID, hold)
+}
+
+// U-D2: Three failures on one code exhaust that method; order stays active with methods remaining.
+func TestU_D2_ThreeFailuresExhaustsCurrentMethod(t *testing.T) {
+	_, env := newSuiteWithRNG(t, alwaysFailRNG{})
+	hold := 30 * time.Second
+
+	scheduleUpdateSeats(t, env, 0, []string{"1A"}, nil)
+	schedulePaymentChain(t, env, time.Millisecond, []string{"11111", "11111", "11111"})
+	env.RegisterDelayedCallback(func() {
+		status := queryStatus(t, env)
+		require.Equal(t, domain.OrderStatusSeatsHeld, status.Status)
+		require.Equal(t, 1, status.MethodsUsed)
+		require.Equal(t, 2, status.MethodsRemaining)
+		require.Equal(t, 3, status.PaymentFailures)
+		require.Equal(t, booking.PaymentEventAttemptsExhausted, status.PaymentEvents[len(status.PaymentEvents)-1].Type)
+	}, 2*time.Second)
+	scheduleCancel(t, env, 3*time.Second, nil)
+
+	executeBooking(env, "O1", memory.Flight1ID, hold)
+}
+
+// U-D3: StartNewPaymentMethod rejected once order is terminal (PAYMENT_FAILED after 3×3).
+func TestU_D3_StartNewPaymentMethodRejectedWhenMethodsExhausted(t *testing.T) {
+	s, env := newSuiteWithRNG(t, alwaysFailRNG{})
+	hold := 30 * time.Second
+
+	scheduleUpdateSeats(t, env, 0, []string{"1A"}, nil)
+	schedulePaymentChain(t, env, time.Millisecond, []string{"11111", "11111", "11111"})
+	schedulePaymentChain(t, env, 1600*time.Millisecond, []string{"22222", "22222", "22222"})
+	schedulePaymentChain(t, env, 3200*time.Millisecond, []string{"33333", "33333", "33333"})
+	env.RegisterDelayedCallback(func() {
+		status := queryStatus(t, env)
+		require.Equal(t, domain.OrderStatusPaymentFailed, status.Status)
+	}, 5*time.Second)
+	scheduleStartNewPaymentMethodExpectReject(t, env, 5500*time.Millisecond)
+
+	executeBooking(env, "O1", memory.Flight1ID, hold)
+
+	status := queryStatus(t, env)
+	require.Equal(t, domain.OrderStatusPaymentFailed, status.Status)
+
+	list, err := s.seats.ListByFlight(t.Context(), memory.Flight1ID)
+	require.NoError(t, err)
+	for _, seat := range list {
+		if seat.SeatID == "1A" {
+			require.Equal(t, domain.SeatStatusAvailable, seat.Status)
+		}
+	}
 }

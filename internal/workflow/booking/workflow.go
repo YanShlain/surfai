@@ -152,19 +152,6 @@ func BookingWorkflow(ctx workflow.Context, input WorkflowInput) error {
 	// Validator rejects invalid state and bad codes before a workflow task is created.
 	if err := workflow.SetUpdateHandlerWithOptions(ctx, UpdateSubmitPayment,
 		func(updateCtx workflow.Context, req SubmitPaymentRequest) (StatusResponse, error) {
-			// Implicit code switch: different code submitted after at least one failure.
-			if state.CurrentCode != "" && req.Code != state.CurrentCode && state.CurrentCodeFailures > 0 {
-				state.MethodsUsed++
-				if state.MethodsUsed >= maxPaymentMethods {
-					if failErr := failOrderPaymentExhausted(activityCtx(updateCtx), &state, state.CurrentCode); failErr != nil {
-						return StatusResponse{}, failErr
-					}
-					notifyTimerReset()
-					return state.toResponse(workflow.Now(ctx)), nil
-				}
-				state.CurrentCodeFailures = 0
-			}
-
 			state.CurrentCode = req.Code
 			state.Status = domain.OrderStatusAwaitingPayment
 			state.LastError = ""
@@ -270,7 +257,7 @@ func BookingWorkflow(ctx workflow.Context, input WorkflowInput) error {
 				if !domain.IsValidPaymentCode(req.Code) {
 					return temporal.NewApplicationError("invalid code", "invalid_payment_code")
 				}
-				if state.CurrentCode != "" && req.Code != state.CurrentCode && state.CurrentCodeFailures == 0 {
+				if state.CurrentCode != "" && req.Code != state.CurrentCode {
 					return temporal.NewApplicationError("new payment method required", "new_method_required")
 				}
 				return nil

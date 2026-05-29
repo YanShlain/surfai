@@ -162,12 +162,12 @@ sequenceDiagram
 **Workflow state (queryable via `GetStatus`):**
 
 - `orderID`, `flightID`, `heldSeatIDs[]`
-- `orderStatus`: `CREATED` | `SEATS_HELD` | `AWAITING_PAYMENT` | `CONFIRMED` | `EXPIRED` | `CANCELLED`
+- `orderStatus`: `CREATED` | `SEATS_HELD` | `AWAITING_PAYMENT` | `CONFIRMED` | `EXPIRED` | `CANCELLED` | `PAYMENT_FAILED`
 - `timerDeadline` — refreshed on every `UpdateSeats`; **never pauses** during payment
 - `methodsUsed` (max 3), `attemptsOnCurrentMethod` (max 3)
 - `paymentEvents[]` — includes timer-expiry rejections (S-4)
 
-**Signals:** `UpdateSeats`, `SubmitPayment`, `StartNewPaymentMethod`, `CancelOrder`  
+**Workflow updates:** `UpdateSeats`, `SubmitPayment`, `StartNewPaymentMethod`, `CancelOrder` (synchronous `UpdateWorkflow` from API)  
 **Query:** `GetStatus` → status, `timer_remaining_seconds`, seats, payment attempts remaining, `payment_events`
 
 **Selector loop:**
@@ -222,10 +222,10 @@ loop until terminal:
 | GET | `/api/v1/flights` | `FlightRepository.List` | Flight picker |
 | GET | `/api/v1/flights/{flight_id}/seats` | `SeatRepository.ListByFlight` | `?order_id=` highlights caller's holds |
 | POST | `/api/v1/orders` | Start `BookingWorkflow` | `{ "flight_id" }` → `{ order_id, status, timer_remaining_seconds }` |
-| PATCH | `/api/v1/orders/{order_id}/seats` | Signal `UpdateSeats` | `{ "seat_ids": ["1A","1B"] }` |
-| POST | `/api/v1/orders/{order_id}/payment/new-method` | Signal `StartNewPaymentMethod` | Required before submitting a different code (MVP-D) |
-| POST | `/api/v1/orders/{order_id}/payment` | Signal `SubmitPayment` | `{ "code": "12345" }` — rejects if different code without prior new-method |
-| POST | `/api/v1/orders/{order_id}/cancel` | Signal `CancelOrder` | → `CANCELLED` |
+| PATCH | `/api/v1/orders/{order_id}/seats` | Update `UpdateSeats` | `{ "seat_ids": ["1A","1B"] }` |
+| POST | `/api/v1/orders/{order_id}/payment/new-method` | Update `StartNewPaymentMethod` | Required before submitting a different code (MVP-D) |
+| POST | `/api/v1/orders/{order_id}/payment` | Update `SubmitPayment` | `{ "code": "12345" }` — rejects if different code without prior new-method |
+| POST | `/api/v1/orders/{order_id}/cancel` | Update `CancelOrder` | → `CANCELLED` |
 | GET | `/api/v1/orders/{order_id}` | Query `GetStatus` | Status, timer, payment state, events |
 
 **Error mapping:** 409 hold conflict; 400 invalid payment code / business rule; 404 unknown order/flight; 410 terminal order.

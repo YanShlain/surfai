@@ -777,8 +777,8 @@ func TestI_D6_ThirdPaymentAttemptIsTerminal(t *testing.T) {
 }
 
 
-// I-D9: After one failure, switching to a different code is allowed (3×3 model).
-func TestI_D9_DifferentCodeWithoutNewMethodAllowed(t *testing.T) {
+// I-D9: After one failure, a different code without new-method is rejected.
+func TestI_D9_DifferentCodeWithoutNewMethodRejected(t *testing.T) {
 	t.Setenv("PAYMENT_ALWAYS_FAIL", "1")
 	srv := newTestApp(t)
 
@@ -791,20 +791,13 @@ func TestI_D9_DifferentCodeWithoutNewMethodAllowed(t *testing.T) {
 	}
 
 	body, code = submitPayment(t, srv, order.OrderID, "22222")
-	if code != http.StatusOK {
-		t.Fatalf("different code status = %d, want 200", code)
+	if code != http.StatusBadRequest {
+		t.Fatalf("different code status = %d, want 400", code)
 	}
 
 	got := getOrder(t, srv, order.OrderID)
 	if got.Status != "SEATS_HELD" {
 		t.Fatalf("status = %q, want SEATS_HELD", got.Status)
-	}
-	if len(got.PaymentEvents) == 0 {
-		t.Fatal("expected payment_events")
-	}
-	last := got.PaymentEvents[len(got.PaymentEvents)-1]
-	if last.Type != "validation_failed" {
-		t.Fatalf("last event type = %q, want validation_failed", last.Type)
 	}
 }
 

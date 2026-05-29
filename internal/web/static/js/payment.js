@@ -101,6 +101,7 @@
     const typedCode = paymentCode.value.trim();
     const validInput = /^\d{5}$/.test(typedCode);
     const exhausted = allMethodsExhausted(order);
+    const methodExhausted = currentMethodExhausted(order);
     const needsNewMethod =
       lastSubmittedCode &&
       typedCode &&
@@ -111,6 +112,7 @@
       order.status === "SEATS_HELD" &&
       validInput &&
       !exhausted &&
+      !methodExhausted &&
       !needsNewMethod;
 
     submitBtn.disabled = !canSubmit;
@@ -128,7 +130,17 @@
   function methodSwitchAllowed(order) {
     const events = order.payment_events || [];
     const last = events[events.length - 1];
-    return last && (last.type === "attempts_exhausted" || last.type === "new_method_started");
+    return last && last.type === "new_method_started";
+  }
+
+  function currentMethodExhausted(order) {
+    const events = order.payment_events || [];
+    const last = events[events.length - 1];
+    return (
+      last &&
+      last.type === "attempts_exhausted" &&
+      methodsRemaining(order) > 0
+    );
   }
 
   function renderOrder(order) {
