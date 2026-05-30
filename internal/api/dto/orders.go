@@ -31,6 +31,5 @@ type OrderResponse struct {
 	TimerRemainingSeconds int                    `json:"timer_remaining_seconds"`
 	PaymentEvents         []PaymentEventResponse `json:"payment_events,omitempty"`
 	PaymentFailures       int                    `json:"payment_failures,omitempty"`
-	MethodsUsed           int                    `json:"methods_used,omitempty"`
-	MethodsRemaining      int                    `json:"methods_remaining,omitempty"`
+	LastError             string                 `json:"last_error,omitempty"`
 }

@@ -101,9 +101,8 @@ type orderBody struct {
 		Code    string `json:"code,omitempty"`
 		Message string `json:"message,omitempty"`
 	} `json:"payment_events"`
-	PaymentFailures int `json:"payment_failures"`
-	MethodsUsed     int `json:"methods_used"`
-	MethodsRemaining int `json:"methods_remaining"`
+	PaymentFailures int    `json:"payment_failures"`
+	LastError       string `json:"last_error"`
 }
 
 func decodeOrder(t *testing.T, resp *http.Response) orderBody {
@@ -125,8 +124,8 @@ func createOrder(t *testing.T, srv *httptest.Server, flightID string) orderBody 
 	return decodeOrder(t, resp)
 }
 
-// I-B0: Timer starts on POST /orders (flight selected)
-func TestI_B0_TimerStartsOnOrderCreate(t *testing.T) {
+// I-B0: POST /orders → CREATED; timer is 0 (timer starts on first seat hold, not on order create)
+func TestI_B0_NoTimerOnOrderCreate(t *testing.T) {
 	t.Setenv("HOLD_DURATION", "15m")
 	srv := newTestApp(t)
 
@@ -134,8 +133,8 @@ func TestI_B0_TimerStartsOnOrderCreate(t *testing.T) {
 	if order.Status != "CREATED" {
 		t.Fatalf("status = %q, want CREATED", order.Status)
 	}
-	if order.TimerRemainingSeconds < 895 || order.TimerRemainingSeconds > 900 {
-		t.Fatalf("timer_remaining_seconds = %d, want ~900", order.TimerRemainingSeconds)
+	if order.TimerRemainingSeconds != 0 {
+		t.Fatalf("timer_remaining_seconds = %d, want 0 (timer not started until seat hold)", order.TimerRemainingSeconds)
 	}
 }
 
@@ -299,17 +298,6 @@ func submitPayment(t *testing.T, srv *httptest.Server, orderID, code string) (or
 	return body, resp.StatusCode
 }
 
-func startNewPaymentMethod(t *testing.T, srv *httptest.Server, orderID string) (orderBody, int) {
-	t.Helper()
-	resp := postJSON(t, srv.URL+"/api/v1/orders/"+orderID+"/payment/new-method", map[string]any{})
-	defer resp.Body.Close()
-	var body orderBody
-	if resp.StatusCode == http.StatusOK {
-		body = decodeOrder(t, resp)
-	}
-	return body, resp.StatusCode
-}
-
 func getOrder(t *testing.T, srv *httptest.Server, orderID string) orderBody {
 	t.Helper()
 	resp, err := http.Get(srv.URL + "/api/v1/orders/" + orderID)
@@ -462,37 +450,42 @@ func TestI_C5_InvalidPaymentCodeLettersAPI(t *testing.T) {
 	}
 }
 
-// I-C6: Three failures on one code exhaust the method; order stays active.
-func TestI_C6_PaymentAttemptsExhaustedAPI(t *testing.T) {
+// I-C6 (S-3): Three consecutive failures → PAYMENT_FAILED; seats released; cancellation message set.
+func TestI_C6_ThreeFailuresTerminateOrder(t *testing.T) {
 	t.Setenv("PAYMENT_ALWAYS_FAIL", "1")
-	srv := newTestApp(t)
+	srv, seats := newTestServer(t)
 
 	order := createOrder(t, srv, memory.Flight1ID)
-	resp := patchJSON(t, srv.URL+"/api/v1/orders/"+order.OrderID+"/seats", map[string]any{"seat_ids": []string{"1A"}})
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("patch status = %d", resp.StatusCode)
-	}
-	resp.Body.Close()
+	holdSeat(t, srv, order.OrderID)
 
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 2; i++ {
 		body, code := submitPayment(t, srv, order.OrderID, "12345")
-		if code != http.StatusOK {
-			t.Fatalf("attempt %d status = %d, want 200", i+1, code)
+		if code != http.StatusOK || body.Status != "SEATS_HELD" {
+			t.Fatalf("attempt %d status=%d body=%+v", i+1, code, body)
 		}
-		if body.Status != "SEATS_HELD" {
-			t.Fatalf("attempt %d order status = %q, want SEATS_HELD", i+1, body.Status)
-		}
+	}
+
+	_, code := submitPayment(t, srv, order.OrderID, "12345")
+	if code != http.StatusGone {
+		t.Fatalf("3rd attempt status = %d, want 410", code)
 	}
 
 	got := getOrder(t, srv, order.OrderID)
-	if got.Status != "SEATS_HELD" {
-		t.Fatalf("status = %q, want SEATS_HELD", got.Status)
+	if got.Status != "PAYMENT_FAILED" {
+		t.Fatalf("status = %q, want PAYMENT_FAILED", got.Status)
 	}
-	if got.MethodsUsed != 1 {
-		t.Fatalf("methods_used = %d, want 1", got.MethodsUsed)
+	if got.PaymentFailures != 3 {
+		t.Fatalf("payment_failures = %d, want 3", got.PaymentFailures)
 	}
-	if got.MethodsRemaining != 2 {
-		t.Fatalf("methods_remaining = %d, want 2", got.MethodsRemaining)
+
+	list, err := seats.ListByFlight(t.Context(), memory.Flight1ID)
+	if err != nil {
+		t.Fatalf("list seats: %v", err)
+	}
+	for _, seat := range list {
+		if seat.SeatID == "1A" && seat.Status != domain.SeatStatusAvailable {
+			t.Fatalf("1A status = %q, want AVAILABLE", seat.Status)
+		}
 	}
 }
 
@@ -585,7 +578,7 @@ func holdSeat(t *testing.T, srv *httptest.Server, orderID string) {
 // Tests I-D7, I-D8, and I-D10 previously asserted POST /payment/new-method (removed).
 // Multi-method behaviour is covered by TestI_D1 (S-3 exhaustion) and TestI_D9 (code switch).
 
-// I-D1: S-3 — fail three codes three times each; order fails and seats release.
+// I-D1: S-3 — fail three consecutive times; order fails and seats release.
 func TestI_D1_AttemptExhaustionReleasesSeats(t *testing.T) {
 	t.Setenv("PAYMENT_ALWAYS_FAIL", "1")
 	srv, seats := newTestServer(t)
@@ -593,23 +586,16 @@ func TestI_D1_AttemptExhaustionReleasesSeats(t *testing.T) {
 	order := createOrder(t, srv, memory.Flight1ID)
 	holdSeat(t, srv, order.OrderID)
 
-	for _, code := range []string{"11111", "22222", "33333"} {
-		for attempt := 0; attempt < 3; attempt++ {
-			body, codeHTTP := submitPayment(t, srv, order.OrderID, code)
-			isLast := code == "33333" && attempt == 2
-			if isLast {
-				if codeHTTP != http.StatusGone {
-					t.Fatalf("final payment status = %d, want 410", codeHTTP)
-				}
-				continue
-			}
-			if codeHTTP != http.StatusOK {
-				t.Fatalf("payment code %s attempt %d status = %d", code, attempt+1, codeHTTP)
-			}
-			if body.Status != "SEATS_HELD" {
-				t.Fatalf("payment code %s attempt %d order status = %q", code, attempt+1, body.Status)
-			}
+	for attempt := 0; attempt < 2; attempt++ {
+		body, code := submitPayment(t, srv, order.OrderID, "12345")
+		if code != http.StatusOK || body.Status != "SEATS_HELD" {
+			t.Fatalf("attempt %d status=%d body=%+v", attempt+1, code, body)
 		}
+	}
+
+	_, finalCode := submitPayment(t, srv, order.OrderID, "12345")
+	if finalCode != http.StatusGone {
+		t.Fatalf("final payment status = %d, want 410", finalCode)
 	}
 
 	got := getOrder(t, srv, order.OrderID)
@@ -691,8 +677,8 @@ func TestI_D3a_RetrySameCodeThenSuccess(t *testing.T) {
 	}
 }
 
-// I-D3: Fail once → new method → different code succeeds (matrix I-D3).
-func TestI_D3_NewMethodSwitchThenSuccess(t *testing.T) {
+// I-D3: Fail once then succeed on second attempt — any code allowed, no new-method step needed.
+func TestI_D3_FailOnceThenSucceedWithSameCode(t *testing.T) {
 	t.Setenv("PAYMENT_FAIL_UNTIL", "1")
 	srv := newTestApp(t)
 
@@ -704,23 +690,9 @@ func TestI_D3_NewMethodSwitchThenSuccess(t *testing.T) {
 		t.Fatalf("first payment status=%d body=%+v", code, body)
 	}
 
-	body, code = startNewPaymentMethod(t, srv, order.OrderID)
-	if code != http.StatusOK || body.Status != "SEATS_HELD" {
-		t.Fatalf("new-method status=%d body=%+v", code, body)
-	}
-	foundNewMethod := false
-	for _, ev := range body.PaymentEvents {
-		if ev.Type == "new_method_started" {
-			foundNewMethod = true
-		}
-	}
-	if !foundNewMethod {
-		t.Fatal("expected new_method_started event")
-	}
-
-	body, code = submitPayment(t, srv, order.OrderID, "22222")
+	body, code = submitPayment(t, srv, order.OrderID, "11111")
 	if code != http.StatusOK || body.Status != "CONFIRMED" {
-		t.Fatalf("success payment status=%d body=%+v", code, body)
+		t.Fatalf("second payment status=%d body=%+v", code, body)
 	}
 }
 
@@ -759,8 +731,9 @@ func TestI_D4_TimerDecrementsDuringPayment(t *testing.T) {
 	}
 }
 
-// I-D5: GET order exposes payment failure and method counters.
-func TestI_D5_GetOrderExposesPaymentCounters(t *testing.T) {
+// I-D5: GET order exposes payment_failures counter; starts at 0, increments on each failure.
+func TestI_D5_GetOrderExposesPaymentFailures(t *testing.T) {
+	t.Setenv("PAYMENT_ALWAYS_FAIL", "1")
 	srv := newTestApp(t)
 
 	order := createOrder(t, srv, memory.Flight1ID)
@@ -770,15 +743,17 @@ func TestI_D5_GetOrderExposesPaymentCounters(t *testing.T) {
 	if got.PaymentFailures != 0 {
 		t.Fatalf("payment_failures = %d, want 0", got.PaymentFailures)
 	}
-	if got.MethodsUsed != 0 {
-		t.Fatalf("methods_used = %d, want 0", got.MethodsUsed)
+
+	body, code := submitPayment(t, srv, order.OrderID, "12345")
+	if code != http.StatusOK || body.Status != "SEATS_HELD" {
+		t.Fatalf("payment status=%d body=%+v", code, body)
 	}
-	if got.MethodsRemaining != 3 {
-		t.Fatalf("methods_remaining = %d, want 3", got.MethodsRemaining)
+	if body.PaymentFailures != 1 {
+		t.Fatalf("payment_failures = %d, want 1", body.PaymentFailures)
 	}
 }
 
-// I-D6: Third failed attempt on one code exhausts the method but not the order.
+// I-D6: Third consecutive failure terminates order with PAYMENT_FAILED and cancellation message.
 func TestI_D6_ThirdPaymentAttemptIsTerminal(t *testing.T) {
 	t.Setenv("PAYMENT_ALWAYS_FAIL", "1")
 	srv := newTestApp(t)
@@ -796,20 +771,17 @@ func TestI_D6_ThirdPaymentAttemptIsTerminal(t *testing.T) {
 		}
 	}
 
-	body, code := submitPayment(t, srv, order.OrderID, "12345")
-	if code != http.StatusOK || body.Status != "SEATS_HELD" {
-		t.Fatalf("third payment status=%d body=%+v", code, body)
+	_, code := submitPayment(t, srv, order.OrderID, "12345")
+	if code != http.StatusGone {
+		t.Fatalf("third payment status = %d, want 410", code)
 	}
 
 	got := getOrder(t, srv, order.OrderID)
+	if got.Status != "PAYMENT_FAILED" {
+		t.Fatalf("status = %q, want PAYMENT_FAILED", got.Status)
+	}
 	if got.PaymentFailures != 3 {
 		t.Fatalf("payment_failures = %d, want 3", got.PaymentFailures)
-	}
-	if got.MethodsUsed != 1 {
-		t.Fatalf("methods_used = %d, want 1", got.MethodsUsed)
-	}
-	if got.Status != "SEATS_HELD" {
-		t.Fatalf("status = %q, want SEATS_HELD", got.Status)
 	}
 	if len(got.PaymentEvents) == 0 {
 		t.Fatal("expected payment_events")
@@ -818,12 +790,15 @@ func TestI_D6_ThirdPaymentAttemptIsTerminal(t *testing.T) {
 	if last.Type != "attempts_exhausted" {
 		t.Fatalf("last event type = %q, want attempts_exhausted", last.Type)
 	}
+	if !strings.Contains(last.Message, "maximum payment retries") {
+		t.Fatalf("last event message = %q, want to contain cancellation message", last.Message)
+	}
 }
 
 
-// I-D9: After one failure, a different code without new-method is rejected.
-func TestI_D9_DifferentCodeWithoutNewMethodRejected(t *testing.T) {
-	t.Setenv("PAYMENT_ALWAYS_FAIL", "1")
+// I-D9: After one failure, a different code is accepted (no new-method step required).
+func TestI_D9_DifferentCodeAcceptedAfterFailure(t *testing.T) {
+	t.Setenv("PAYMENT_FAIL_UNTIL", "1")
 	srv := newTestApp(t)
 
 	order := createOrder(t, srv, memory.Flight1ID)
@@ -835,30 +810,8 @@ func TestI_D9_DifferentCodeWithoutNewMethodRejected(t *testing.T) {
 	}
 
 	body, code = submitPayment(t, srv, order.OrderID, "22222")
-	if code != http.StatusBadRequest {
-		t.Fatalf("different code status = %d, want 400", code)
-	}
-
-	got := getOrder(t, srv, order.OrderID)
-	if got.Status != "SEATS_HELD" {
-		t.Fatalf("status = %q, want SEATS_HELD", got.Status)
-	}
-}
-
-// I-D10: new-method before any payment attempt is rejected.
-func TestI_D10_NewMethodBeforeFirstPaymentRejected(t *testing.T) {
-	srv := newTestApp(t)
-
-	order := createOrder(t, srv, memory.Flight1ID)
-	holdSeat(t, srv, order.OrderID)
-
-	resp, err := http.Post(srv.URL+"/api/v1/orders/"+order.OrderID+"/payment/new-method", "application/json", nil)
-	if err != nil {
-		t.Fatalf("post new-method: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("new-method status = %d, want 400", resp.StatusCode)
+	if code != http.StatusOK || body.Status != "CONFIRMED" {
+		t.Fatalf("different code success status=%d body=%+v", code, body)
 	}
 }
 

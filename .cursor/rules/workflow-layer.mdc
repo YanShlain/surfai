@@ -18,9 +18,9 @@ alwaysApply: false
 - No Gin/HTTP imports in this package.
 - One `BookingWorkflow` per order; workflow ID equals `order_id`.
 - Seat mutations only via activities → `SeatRepository` (`TryHold`, `Release`, `Confirm`, `SwapHold`).
-- Payment uses workflow **updates** (`UpdateSubmitPayment`, `UpdateStartNewPaymentMethod`), not signal polling.
-- Timer starts on order create; **refreshes** on every seat change (S-2); **never pauses** during payment (S-4).
-- Enforce 3 attempts per code and 3 methods per order in workflow state (S-3).
+- Payment uses workflow **updates** (`UpdateSubmitPayment`), not signal polling.
+- Timer starts on **first seat hold** (`PATCH /seats` with non-empty seats); **refreshes** on every seat change (S-2); **never pauses** during payment (S-4). No timer in `CREATED` state.
+- Enforce 3 consecutive failed payment attempts → `PAYMENT_FAILED` (S-3). No per-code / per-method distinction.
 
 ## Tests
 

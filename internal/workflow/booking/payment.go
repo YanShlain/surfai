@@ -8,9 +8,8 @@ import (
 )
 
 const (
-	paymentFailureRate   = 0.15
-	maxAttemptsPerMethod = 3
-	maxPaymentMethods    = 3
+	paymentFailureRate = 0.15
+	maxPaymentAttempts = 3
 )
 
 // PaymentRNG supplies randomness for simulated payment failures (injectable in tests).

@@ -6,14 +6,13 @@ import (
 )
 
 const (
-	WorkflowName         = "BookingWorkflow"
-	TaskQueue            = "booking-task-queue"
-	Namespace            = "flight-booking"
-	QueryGetStatus       = "GetStatus"
+	WorkflowName        = "BookingWorkflow"
+	TaskQueue           = "booking-task-queue"
+	Namespace           = "flight-booking"
+	QueryGetStatus      = "GetStatus"
 	UpdateUpdateSeats   = "UpdateSeats"
-	UpdateCancelOrder         = "CancelOrder"
-	UpdateSubmitPayment       = "SubmitPayment"
-	UpdateStartNewPaymentMethod = "StartNewPaymentMethod"
+	UpdateCancelOrder   = "CancelOrder"
+	UpdateSubmitPayment = "SubmitPayment"
 )
 
 const minHoldDuration = 5 * time.Second

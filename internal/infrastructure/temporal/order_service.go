@@ -108,11 +108,6 @@ func (s *OrderService) SubmitPayment(ctx context.Context, orderID string, code s
 	return s.runPaymentUpdate(ctx, orderID, booking.UpdateSubmitPayment, booking.SubmitPaymentRequest{Code: code})
 }
 
-// StartNewPaymentMethod switches to a new payment code slot before submitting a different code.
-func (s *OrderService) StartNewPaymentMethod(ctx context.Context, orderID string) (booking.StatusResponse, error) {
-	return s.runPaymentUpdate(ctx, orderID, booking.UpdateStartNewPaymentMethod, nil)
-}
-
 func (s *OrderService) runPaymentUpdate(ctx context.Context, orderID, updateName string, arg any) (booking.StatusResponse, error) {
 	slog.Info("outbound temporal UpdateWorkflow",
 		"update", updateName,
@@ -208,10 +203,6 @@ func mapTemporalError(err error) error {
 			return ErrPaymentNotAllowed
 		case "invalid_payment_code":
 			return ErrInvalidPaymentCode
-		case "new_method_not_needed":
-			return ErrNewMethodNotNeeded
-		case "new_method_required":
-			return ErrNewMethodRequired
 		}
 	}
 	var notFound *serviceerror.NotFound
@@ -241,11 +232,6 @@ var (
 	// ErrPaymentInProgress indicates a seat update was rejected because payment is being validated.
 	ErrPaymentInProgress = errors.New("payment in progress")
 
-	// ErrNewMethodNotNeeded indicates new-method was requested without an active code.
-	ErrNewMethodNotNeeded = errors.New("new payment method not needed")
-
-	// ErrNewMethodRequired indicates a different code requires POST .../payment/new-method first.
-	ErrNewMethodRequired = errors.New("new payment method required")
 )
 
 // WorkflowExecutionRunning checks whether a workflow exists and is running.

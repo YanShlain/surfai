@@ -22,7 +22,6 @@ const (
 	PaymentEventValidationFailed  PaymentEventType = "validation_failed"
 	PaymentEventValidationSuccess PaymentEventType = "validation_success"
 	PaymentEventRejectedByTimer   PaymentEventType = "rejected_by_timer"
-	PaymentEventNewMethodStarted  PaymentEventType = "new_method_started"
 )
 
 // PaymentEvent is an append-only audit entry for payment attempts.
@@ -41,9 +40,7 @@ type StatusResponse struct {
 	TimerRemainingSeconds int                `json:"timer_remaining_seconds"`
 	PaymentEvents         []PaymentEvent     `json:"payment_events"`
 	PaymentFailures       int                `json:"payment_failures"`
-	MethodsUsed           int                `json:"methods_used"`
-	MethodsRemaining      int                `json:"methods_remaining"`
-	LastError             string             `json:"-"`
+	LastError             string             `json:"last_error,omitempty"`
 }
 
 // UpdateSeatsRequest is the payload for UpdateSeats workflow update.

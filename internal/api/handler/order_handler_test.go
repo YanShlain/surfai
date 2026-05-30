@@ -23,7 +23,6 @@ type mockOrderService struct {
 	updateSeats   func(ctx context.Context, orderID string, seatIDs []string) (booking.StatusResponse, error)
 	cancelOrder   func(ctx context.Context, orderID string) (booking.StatusResponse, error)
 	submitPayment func(ctx context.Context, orderID string, code string) (booking.StatusResponse, error)
-	startNewMethod func(ctx context.Context, orderID string) (booking.StatusResponse, error)
 	getStatus     func(ctx context.Context, orderID string) (booking.StatusResponse, error)
 }
 
@@ -39,12 +38,6 @@ func (m *mockOrderService) CancelOrder(ctx context.Context, orderID string) (boo
 func (m *mockOrderService) SubmitPayment(ctx context.Context, orderID string, code string) (booking.StatusResponse, error) {
 	return m.submitPayment(ctx, orderID, code)
 }
-func (m *mockOrderService) StartNewPaymentMethod(ctx context.Context, orderID string) (booking.StatusResponse, error) {
-	if m.startNewMethod != nil {
-		return m.startNewMethod(ctx, orderID)
-	}
-	return booking.StatusResponse{}, nil
-}
 func (m *mockOrderService) GetStatus(ctx context.Context, orderID string) (booking.StatusResponse, error) {
 	return m.getStatus(ctx, orderID)
 }
@@ -59,7 +52,6 @@ func newTestRouter(svc handler.OrderService) *gin.Engine {
 	v1.PATCH("/orders/:order_id/seats", h.UpdateSeats)
 	v1.POST("/orders/:order_id/cancel", h.CancelOrder)
 	v1.POST("/orders/:order_id/payment", h.SubmitPayment)
-	v1.POST("/orders/:order_id/payment/new-method", h.StartNewPaymentMethod)
 	v1.GET("/orders/:order_id", h.GetOrder)
 	return r
 }
@@ -292,35 +284,3 @@ func TestGetOrder_NotFound_404(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
-// --- StartNewPaymentMethod ---
-
-func TestStartNewPaymentMethod_Success(t *testing.T) {
-	svc := &mockOrderService{startNewMethod: func(_ context.Context, orderID string) (booking.StatusResponse, error) {
-		require.Equal(t, "order-1", orderID)
-		return okStatus(), nil
-	}}
-	r := newTestRouter(svc)
-	w := doRequest(r, http.MethodPost, "/api/v1/orders/order-1/payment/new-method", nil)
-	require.Equal(t, http.StatusOK, w.Code)
-	var body map[string]any
-	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
-	require.Equal(t, "order-1", body["order_id"])
-}
-
-func TestStartNewPaymentMethod_NotFound_404(t *testing.T) {
-	svc := &mockOrderService{startNewMethod: func(_ context.Context, _ string) (booking.StatusResponse, error) {
-		return booking.StatusResponse{}, temporal.ErrOrderNotFound
-	}}
-	r := newTestRouter(svc)
-	w := doRequest(r, http.MethodPost, "/api/v1/orders/order-1/payment/new-method", nil)
-	require.Equal(t, http.StatusNotFound, w.Code)
-}
-
-func TestStartNewPaymentMethod_TerminalOrder_410(t *testing.T) {
-	svc := &mockOrderService{startNewMethod: func(_ context.Context, _ string) (booking.StatusResponse, error) {
-		return booking.StatusResponse{}, temporal.ErrTerminalOrder
-	}}
-	r := newTestRouter(svc)
-	w := doRequest(r, http.MethodPost, "/api/v1/orders/order-1/payment/new-method", nil)
-	require.Equal(t, http.StatusGone, w.Code)
-}
