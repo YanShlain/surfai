@@ -23,7 +23,7 @@
 
 - [ ] API calls match router paths in README
 - [ ] SSE or polling for status updates documented and wired
-- [ ] Payment code input: 5 digits only; new-method flow exposed in UI if API exists
+- [ ] Payment code input: 5 digits only; 3 consecutive failures → terminal message (no new-method button)
 - [ ] Error states surfaced (409 hold conflict, 400 validation, terminal failures)
 - [ ] No hardcoded localhost assumptions breaking configurable `API_ADDR`
 

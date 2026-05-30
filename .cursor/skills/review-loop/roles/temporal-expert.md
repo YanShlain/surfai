@@ -13,7 +13,7 @@
 - [ ] 15-minute timer starts on order create; **refreshes** on every seat change (S-2)
 - [ ] Timer **never pauses** during payment validation (S-4, I-D4)
 - [ ] Timer expiry wins over in-flight payment — seats released, payment rejected (S-4, U-D4)
-- [ ] Payment: Workflow **Update** (not signal+polling) for submit and new-method
+- [ ] Payment: Workflow **Update** (not signal+polling) for `SubmitPayment` only
 - [ ] 3 attempts per code, 3 methods per order — enforced in workflow state
 - [ ] Terminal states: `CONFIRMED`, `EXPIRED`, `CANCELLED`, `PAYMENT_FAILED` reachable and tested
 - [ ] Activities idempotent where Temporal may retry
