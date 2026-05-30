@@ -224,13 +224,19 @@ func TestSubmitPayment_MissingBody_400(t *testing.T) {
 }
 
 func TestSubmitPayment_ShortCode_400(t *testing.T) {
-	r := newTestRouter(&mockOrderService{})
+	svc := &mockOrderService{submitPayment: func(_ context.Context, _ string, _ string) (booking.StatusResponse, error) {
+		return booking.StatusResponse{}, temporal.ErrInvalidPaymentCode
+	}}
+	r := newTestRouter(svc)
 	w := doRequest(r, http.MethodPost, "/api/v1/orders/order-1/payment", map[string]string{"code": "1234"})
 	require.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestSubmitPayment_AlphaCode_400(t *testing.T) {
-	r := newTestRouter(&mockOrderService{})
+	svc := &mockOrderService{submitPayment: func(_ context.Context, _ string, _ string) (booking.StatusResponse, error) {
+		return booking.StatusResponse{}, temporal.ErrInvalidPaymentCode
+	}}
+	r := newTestRouter(svc)
 	w := doRequest(r, http.MethodPost, "/api/v1/orders/order-1/payment", map[string]string{"code": "abcde"})
 	require.Equal(t, http.StatusBadRequest, w.Code)
 }

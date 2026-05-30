@@ -1,0 +1,28 @@
+---
+description: Neon Temporal workflow — timer, payment, state machine, activities
+globs: internal/workflow/**
+alwaysApply: false
+---
+
+# Workflow layer (Service)
+
+## Read first
+
+- `internal/workflow/booking/workflow.go` — state machine, timer, updates
+- `internal/workflow/booking/payment.go` — validation simulation
+- `internal/workflow/booking/activities.go` — repository side effects
+- [docs/design_overview.md](../../docs/design_overview.md) §3
+
+## Boundaries
+
+- No Gin/HTTP imports in this package.
+- One `BookingWorkflow` per order; workflow ID equals `order_id`.
+- Seat mutations only via activities → `SeatRepository` (`TryHold`, `Release`, `Confirm`, `SwapHold`).
+- Payment uses workflow **updates** (`UpdateSubmitPayment`, `UpdateStartNewPaymentMethod`), not signal polling.
+- Timer starts on order create; **refreshes** on every seat change (S-2); **never pauses** during payment (S-4).
+- Enforce 3 attempts per code and 3 methods per order in workflow state (S-3).
+
+## Tests
+
+- Unit/time-skipping: `internal/workflow/booking/workflow_test.go`
+- Scenario map: [docs/review_loop_state.md](../../docs/review_loop_state.md) S-1..S-5 table

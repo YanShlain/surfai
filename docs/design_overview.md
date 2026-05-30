@@ -1,8 +1,10 @@
 # Design Overview: Neon Flight Booking System
 
+> **Agents:** start at [AGENTS.md](../AGENTS.md) §Navigation — use this doc for architecture, flows (§3), API (§4), and the component map (§8).
+
 > **Status:** Reflects current implementation  
 > **Last updated:** 2026-05-29  
-> **Related:** [final_requierments.md](final_requierments.md) · [final_plan.md](final_plan.md) · [README.md](../README.md)
+> **Related:** [final_requierments.md](final_requierments.md) · [README.md](../README.md)
 
 ---
 
@@ -95,7 +97,6 @@ stateDiagram-v2
   AWAITING_PAYMENT --> PAYMENT_FAILED: final failure during validation
   CREATED --> CANCELLED: POST /cancel
   SEATS_HELD --> CANCELLED: POST /cancel
-  AWAITING_PAYMENT --> EXPIRED: timer expiry (after reject)
   CONFIRMED --> [*]
   EXPIRED --> [*]
   CANCELLED --> [*]
@@ -638,6 +639,8 @@ Departure times are staggered hourly from approximately 24 hours after server st
 | `PAYMENT_ALWAYS_FAIL` | — | Set to `1` to always fail validation |
 | `PAYMENT_FAIL_UNTIL` | — | Fail first N validations, then succeed |
 | `PAYMENT_VALIDATION_DELAY` | — | Artificial delay in payment activity (e.g. `2s`, `5s`) |
+| `EMBED_TEMPORAL_WORKER` | `1` | Embed Temporal worker in API process; set to `0` to skip |
+| `ALLOW_SPLIT_INMEMORY` | — | Set to `1` to allow separate API/worker processes with in-memory store (dev only) |
 
 ---
 
@@ -662,7 +665,7 @@ internal/api/router.go       Route registration
 internal/api/handler/        HTTP handlers
 internal/api/dto/            Request/response types
 internal/app/application.go  Bootstrap: repos + Temporal + worker
-internal/domain/             Seat, Flight, OrderStatus types
+domain/                      Seat, Flight, OrderStatus types and repository interfaces
 internal/infrastructure/
   memory/                    In-memory repositories + seed
   temporal/                  Client, dev server, OrderService
@@ -672,4 +675,4 @@ internal/web/                Embedded static UI
 
 ---
 
-*Requirements: [final_requierments.md](final_requierments.md) · Architecture plan: [final_plan.md](final_plan.md)*
+*Requirements: [final_requierments.md](final_requierments.md) · Agent index: [AGENTS.md](../AGENTS.md)*

@@ -22,13 +22,13 @@ Note: Fixed TestU_D5 timer flake (30s hold); added U-D1/U-D2/U-D3; idempotent Re
 
 ## Scenario coverage (S-1..S-5)
 
-| Scenario | Description | Test(s) | Status |
-|----------|-------------|---------|--------|
-| S-1 | Happy path | `TestI_C1_PaymentHappyPath`, `TestU_C1_PaymentSuccessConfirmsSeats` | PASS |
-| S-2 | Timer refresh on seat change | `TestI_B1_TimerRefreshAfterSeatChange`, `TestU_B2_SeatChangeResetsTimer` | PASS |
-| S-3 | Method exhaustion (3×3) | `TestI_D1_AttemptExhaustionReleasesSeats`, `TestU_D3_*` | PASS |
-| S-4 | Late payment / timer expiry during payment | `TestI_D2_LatePaymentRejectedOnExpiry`, `TestU_D4_TimerRejectsInFlightPayment` | PASS |
-| S-5 | Multi-flight isolation | `TestI_B2_MultiFlightHoldIsolation`, `TestU_B7_IsolatedFlightsAllowSameSeatID` | PASS |
+| Scenario | Description | Primary source | Test(s) | Status |
+|----------|-------------|----------------|---------|--------|
+| S-1 | Happy path | `internal/api/handler/orders.go`, `internal/workflow/booking/workflow.go`, `payment.go` | `TestI_C1_PaymentHappyPath`, `TestU_C1_PaymentSuccessConfirmsSeats` | PASS |
+| S-2 | Timer refresh on seat change | `internal/workflow/booking/workflow.go` (UpdateSeats / timer reset) | `TestI_B1_TimerRefreshAfterSeatChange`, `TestU_B2_SeatChangeResetsTimer` | PASS |
+| S-3 | Method exhaustion (3×3) | `internal/workflow/booking/payment.go`, `workflow.go` | `TestI_D1_AttemptExhaustionReleasesSeats`, `TestU_D3_StartNewPaymentMethodRejectedWhenMethodsExhausted` | PASS |
+| S-4 | Late payment / timer expiry during payment | `internal/workflow/booking/workflow.go` (timer vs payment race), `payment.go` | `TestI_D2_LatePaymentRejectedOnExpiry`, `TestU_D4_TimerRejectsInFlightPayment` | PASS |
+| S-5 | Multi-flight isolation | `internal/infrastructure/memory/seat_repository.go`, `internal/workflow/booking/activities.go` | `TestI_B2_MultiFlightHoldIsolation`, `TestU_B7_IsolatedFlightsAllowSameSeatID` | PASS |
 
 ## Test matrix snapshot (final_plan.md §9)
 

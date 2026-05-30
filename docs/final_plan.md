@@ -72,7 +72,6 @@ type SeatRepository interface {
     TryHold(ctx context.Context, flightID string, seatIDs []string, orderID string) error
     SwapHold(ctx context.Context, flightID, orderID string, releaseIDs, holdIDs []string) error
     ApplyHold(ctx context.Context, flightID, orderID string, seatIDs []string) error
-    ApplyBooked(ctx context.Context, flightID, orderID string, seatIDs []string) error
     Release(ctx context.Context, flightID string, seatIDs []string, orderID string) error
     Confirm(ctx context.Context, flightID string, seatIDs []string, orderID string) error
 }
@@ -93,7 +92,7 @@ type FlightRepository interface {
 
 | Interface | Aggregate | Key methods |
 |-----------|-----------|-------------|
-| `SeatRepository` | Seat (per flight) | `ListByFlight`, `TryHold`, `SwapHold`, `ApplyHold`, `ApplyBooked`, `Release`, `Confirm` |
+| `SeatRepository` | Seat (per flight) | `ListByFlight`, `TryHold`, `SwapHold`, `ApplyHold`, `Release`, `Confirm` |
 | `FlightRepository` | Flight | `Get`, `List` |
 
 ### 2.3 Layer dependency diagram
@@ -367,7 +366,7 @@ flowchart LR
 
 ### MVP-E — E2E polish and full demo
 
-**Deliverables:** Responsive layout, accessibility pass, Playwright suite (E-E1–E-E7) against local API+worker; `docker-compose.yml` provides Postgres only (optional future stack).
+**Deliverables:** Responsive layout, accessibility pass, Playwright suite (E-E1–E-E7) against local API with embedded worker (`go run ./cmd/api`); optional `docker-compose.yml` provides Postgres for future persistence only — not required for MVP demo or E2E.
 
 **UI deliverables:**
 - **Cross-browser E2E** — E-E1–E-E7 (happy path, timer refresh, method exhaustion, late payment, multi-flight, multi-user map, single-order rule).

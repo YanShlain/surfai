@@ -2,7 +2,7 @@
 
 A multi-flight seat reservation and payment system orchestrated by [Temporal](https://temporal.io/). Users browse flights, hold seats on a 15-minute refreshable timer, and complete booking with a simulated 5-digit payment code.
 
-**Requirements:** [docs/final_requierments.md](docs/final_requierments.md) · **Architecture:** [docs/final_plan.md](docs/final_plan.md)
+**Requirements:** [docs/final_requierments.md](docs/initial_requierments.md) · **Architecture:** [docs/design_overview.md](docs/final_plan.md)
 
 ---
 

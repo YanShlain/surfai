@@ -194,7 +194,7 @@ Restart API with `$env:PAYMENT_ALWAYS_FAIL = "1"`, new order + hold, three payme
 }
 ```
 
-**Expected:** All three return HTTP **200** and **SEATS_HELD** with `methods_used: 1`; order stays active (terminal only after 3 codes × 3 failures — see §6.3 / `TestI_D1`).
+**Expected:** All three return HTTP **200** and **SEATS_HELD**. The first two have `methods_used: 0`; the third has `methods_used: 1` (code exhausted, new method required). Order stays active — terminal only after 3 codes × 3 failures (see §6.3 / `TestI_D1`).
 
 ### 3.11 Quick smoke script (Invoke-RestMethod)
 

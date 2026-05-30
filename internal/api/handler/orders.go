@@ -11,7 +11,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"neon/domain"
 	"neon/internal/api/dto"
 	"neon/internal/infrastructure/temporal"
 	"neon/internal/workflow/booking"
@@ -97,11 +96,6 @@ func (h *OrderHandler) SubmitPayment(c *gin.Context) {
 	var req dto.SubmitPaymentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
-		return
-	}
-
-	if !domain.IsValidPaymentCode(req.Code) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payment code"})
 		return
 	}
 

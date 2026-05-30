@@ -340,17 +340,6 @@ func schedulePaymentExpectReject(t *testing.T, env *testsuite.TestWorkflowEnviro
 	}, delay)
 }
 
-func schedulePaymentAllowError(t *testing.T, env *testsuite.TestWorkflowEnvironment, delay time.Duration, code string) {
-	t.Helper()
-	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(booking.UpdateSubmitPayment, fmt.Sprintf("pay-err-%d", time.Now().UnixNano()), &testsuite.TestUpdateCallback{
-			OnComplete: func(_ interface{}, err error) {
-				require.Error(t, err)
-			},
-		}, booking.SubmitPaymentRequest{Code: code})
-	}, delay)
-}
-
 func schedulePaymentChain(t *testing.T, env *testsuite.TestWorkflowEnvironment, delay time.Duration, codes []string) {
 	t.Helper()
 	for i, code := range codes {
@@ -574,7 +563,7 @@ func TestU_D6_NewMethodRequiredForDifferentCode(t *testing.T) {
 	hold := 30 * time.Second
 
 	scheduleUpdateSeats(t, env, 0, []string{"1A"}, nil)
-	schedulePaymentAllowError(t, env, 100*time.Millisecond, "11111")
+	schedulePaymentExpectReject(t, env, 100*time.Millisecond, "11111")
 	schedulePaymentExpectReject(t, env, 3*time.Second, "22222")
 	scheduleCancel(t, env, 5*time.Second, nil)
 

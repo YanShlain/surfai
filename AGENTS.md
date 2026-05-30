@@ -2,6 +2,26 @@
 
 This project uses **Cursor Agent Skills** for implementation and quality gates.
 
+**Agents:** read this section before broad search or exploration.
+
+## Navigation
+
+| Task | Start here | Then read |
+|------|------------|-----------|
+| API / HTTP routes | `internal/api/router.go`, `internal/api/handler/` | [docs/design_overview.md](docs/design_overview.md) §4 (API) |
+| Workflow / timer / payment | `internal/workflow/booking/` | [docs/design_overview.md](docs/design_overview.md) §3 (flows) |
+| Temporal client (start/update/query) | `internal/infrastructure/temporal/order_service.go` | `internal/workflow/booking/types.go` |
+| Seat holds / inventory | `domain/repository.go`, `internal/infrastructure/memory/seat_repository.go` | [docs/design_overview.md](docs/design_overview.md) §2.1 |
+| Bootstrap / startup | `internal/app/application.go`, `cmd/api/main.go` | [README.md](README.md) env vars |
+| UI / E2E | `internal/web/static/js/`, `tests/e2e/` | [docs/design_overview.md](docs/design_overview.md) §7 |
+| Requirements / scenarios S-1..S-5 | [docs/final_requierments.md](docs/final_requierments.md) | [docs/review_loop_state.md](docs/review_loop_state.md) (scenario → code map) |
+
+**Component tree:** [docs/design_overview.md](docs/design_overview.md) §8
+
+**Layer rules** (auto-loaded when editing matching paths): `.cursor/rules/api-layer.mdc`, `workflow-layer.mdc`, `frontend-contract.mdc`
+
+Prefer targeted `@` file references or the table above over repo-wide semantic search (~90 files).
+
 ## Quick commands
 
 | Invoke | Purpose |
@@ -35,8 +55,9 @@ State persists in [docs/review_loop_state.md](docs/review_loop_state.md).
 ## Source of truth
 
 - Requirements: [docs/final_requierments.md](docs/final_requierments.md)
-- Architecture & test matrix: [docs/final_plan.md](docs/final_plan.md)
+- Architecture & flows: [docs/design_overview.md](docs/design_overview.md)
 - Overview: [README.md](README.md)
+- Review state & scenario map: [docs/review_loop_state.md](docs/review_loop_state.md)
 
 ## Delivery gates
 

@@ -67,11 +67,9 @@ func (a *Activities) ReleaseSeats(ctx context.Context, in SeatMutationInput) err
 	return nil
 }
 
-// ValidatePayment checks a 5-digit code and simulates gateway validation (10s, 15% failure).
+// ValidatePayment simulates gateway validation (10s, 15% failure).
+// Code format is validated upstream by the workflow update handler.
 func (a *Activities) ValidatePayment(ctx context.Context, in PaymentValidationInput) error {
-	if !domain.IsValidPaymentCode(in.Code) {
-		return temporal.NewNonRetryableApplicationError("invalid payment code format", "invalid_payment_code", nil)
-	}
 	if raw := os.Getenv("PAYMENT_VALIDATION_DELAY"); raw != "" {
 		if delay, err := time.ParseDuration(raw); err == nil && delay > 0 {
 			select {

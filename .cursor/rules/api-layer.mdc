@@ -1,0 +1,26 @@
+---
+description: Neon presentation layer — Gin handlers, DTOs, Temporal client boundary
+globs: internal/api/**
+alwaysApply: false
+---
+
+# API layer (Presentation)
+
+## Read first
+
+- `internal/api/router.go` — route table
+- `internal/infrastructure/temporal/order_service.go` — workflow start/update/query
+- [docs/design_overview.md](../../docs/design_overview.md) §4
+
+## Boundaries
+
+- Handlers call `OrderService` (Temporal client); they do **not** mutate seat inventory directly.
+- **Exception:** `GET /api/v1/flights/{flight_id}/seats` reads `SeatRepository` directly (read path only).
+- Do **not** call `TryHold`, `Release`, `Confirm`, or `SwapHold` from handlers.
+- DTOs live in `internal/api/dto/`; map domain/workflow types at the handler edge.
+- Payment code format validation may exist in handlers for HTTP 400; business rules (3×3, timer) belong in the workflow.
+
+## Tests
+
+- Handler unit tests: `internal/api/handler/*_test.go`
+- End-to-end HTTP: `internal/api/order_integration_test.go`, `integration_test.go`

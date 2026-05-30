@@ -1,0 +1,26 @@
+---
+description: Neon static web UI — API contract, timer display, seat map refresh
+globs: internal/web/**
+alwaysApply: false
+---
+
+# Frontend (embedded static UI)
+
+## Read first
+
+- `internal/web/static/js/api.js` — fetch helpers
+- `internal/web/static/js/seats.js`, `payment.js` — page logic
+- [docs/design_overview.md](../../docs/design_overview.md) §7
+
+## API contract
+
+- Timer: use `timer_remaining_seconds` from order responses; decrement locally between polls.
+- After any mutating call (seats, payment, cancel), refetch `GET /api/v1/flights/{id}/seats?order_id=`.
+- Single active order: persist `order_id` in `localStorage`; block new booking until terminal state.
+- Highlight own holds via `?order_id=` on seat map GET.
+- Optional SSE: `GET /api/v1/orders/{id}/stream`; fallback polling ~2s is acceptable.
+
+## E2E
+
+- Playwright specs: `tests/e2e/`
+- Manual steps: [docs/manual_tests.md](../../docs/manual_tests.md)
