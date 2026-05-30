@@ -5,7 +5,7 @@ const PORT_SUCCESS = 8080;
 const PORT_FAILURE = 8081;
 const PORT_TIMER_RACE = 8082;
 
-test.describe("MVP-E success-flow journeys (E-E1, E-E2, E-E5, E-E6, E-E7)", () => {
+test.describe("MVP-E success-flow journeys (E-E1, E-E2, E-E5, E-E6, E-E7, E-E8)", () => {
   let server: NeonServer;
 
   test.beforeEach(async () => {
@@ -55,6 +55,22 @@ test.describe("MVP-E success-flow journeys (E-E1, E-E2, E-E5, E-E6, E-E7)", () =
 
     expect(refreshedTimer).toBeGreaterThanOrEqual(110);
     expect(refreshedTimer).toBeGreaterThanOrEqual(beforeChange);
+  });
+
+  test("E-E8: seats page timer counts down locally between polls", async ({ page }) => {
+    await page.goto(`${server.baseURL}/`);
+    await startOrder(page, 0);
+    await clickAnyAvailableSeat(page);
+
+    await expect(page.locator("#timer-display")).not.toHaveText("—");
+    await expect(page.locator("#seat-map")).toBeVisible();
+
+    const initial = await readTimerSeconds(page, "#timer-display");
+    expect(initial).toBeGreaterThan(10);
+
+    await expect
+      .poll(async () => readTimerSeconds(page, "#timer-display"), { timeout: 5000 })
+      .toBeLessThanOrEqual(initial - 2);
   });
 
   test("E-E5: flight inventories are isolated", async ({ browser }) => {

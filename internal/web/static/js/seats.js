@@ -24,7 +24,6 @@
   let latestSeats = [];
   let syncInFlight = false;
   let orderStatus = "";
-  let orderStream = null;
   let pollHandle = null;
 
   if (!flightID) {
@@ -57,7 +56,7 @@
   async function refreshAll() {
     hideError(errorEl);
     await loadFlightMeta(flightID);
-    await loadOrder();
+    await loadOrder({ resetTimer: true });
     await loadSeatMap(flightID);
   }
 
@@ -78,17 +77,43 @@
     }
   }
 
-  async function loadOrder() {
+  async function loadOrder(options = {}) {
     const order = await fetchJSON(`/orders/${encodeURIComponent(orderID)}`);
-    applyOrderState(order);
+    const mapKeyBefore = seatMapKey();
+    applyOrderState(order, options);
+    return mapKeyBefore !== seatMapKey();
   }
 
-  function applyOrderState(order) {
+  function seatMapKey() {
+    return orderSeatsSignature(orderStatus, [...selectedSeats]);
+  }
+
+  function applyOrderState(order, { resetTimer = false } = {}) {
+    const signatureBefore = seatMapKey();
     orderStatus = order.status;
     orderStatusEl.textContent = order.status;
     selectedSeats = new Set(order.held_seat_ids || []);
-    timerSeconds = order.timer_remaining_seconds || 0;
-    startTimer();
+    const signatureAfter = seatMapKey();
+    const forceTimer =
+      resetTimer || signatureBefore !== signatureAfter || isTerminalStatus(order.status);
+
+    if (isTerminalStatus(order.status)) {
+      timerSeconds = 0;
+      restartTimer();
+    } else {
+      timerSeconds = reconcileTimerSeconds(
+        timerSeconds,
+        order.timer_remaining_seconds || 0,
+        { force: forceTimer }
+      );
+      if (forceTimer) {
+        restartTimer();
+      } else {
+        timerDisplay.textContent = formatTimer(timerSeconds);
+        startTimer();
+      }
+    }
+
     updateSelectionSummary();
     updatePayButton(order);
 
@@ -102,24 +127,7 @@
 
   function startLiveUpdates() {
     stopLiveUpdates();
-    try {
-      orderStream = new EventSource(`/api/v1/orders/${encodeURIComponent(orderID)}/stream`);
-      orderStream.addEventListener("status", async (event) => {
-        try {
-          const order = JSON.parse(event.data);
-          applyOrderState(order);
-          await loadSeatMap(flightID);
-        } catch {
-          // ignore malformed stream payload
-        }
-      });
-      orderStream.onerror = () => {
-        stopLiveUpdates();
-        startOrderPolling();
-      };
-    } catch {
-      startOrderPolling();
-    }
+    startOrderPolling();
   }
 
   function startOrderPolling() {
@@ -128,19 +136,17 @@
     }
     pollHandle = setInterval(async () => {
       try {
-        await loadOrder();
-        await loadSeatMap(flightID);
+        const seatMapChanged = await loadOrder();
+        if (seatMapChanged) {
+          await loadSeatMap(flightID, { silent: true });
+        }
       } catch {
         // best effort polling
       }
-    }, 2000);
+    }, ORDER_POLL_INTERVAL_MS);
   }
 
   function stopLiveUpdates() {
-    if (orderStream) {
-      orderStream.close();
-      orderStream = null;
-    }
     if (pollHandle) {
       clearInterval(pollHandle);
       pollHandle = null;
@@ -183,19 +189,29 @@
     }
   }
 
-  async function loadSeatMap(id) {
-    loadingEl.classList.remove("hidden");
-    seatMapEl.classList.add("hidden");
+  async function loadSeatMap(id, { silent = false } = {}) {
+    const mapWasVisible = !seatMapEl.classList.contains("hidden");
+    if (!silent) {
+      loadingEl.classList.remove("hidden");
+      seatMapEl.classList.add("hidden");
+    }
 
     try {
       const query = orderID ? `?order_id=${encodeURIComponent(orderID)}` : "";
       const data = await fetchJSON(`/flights/${encodeURIComponent(id)}/seats${query}`);
       latestSeats = data.seats || [];
-      loadingEl.classList.add("hidden");
+      if (!silent) {
+        loadingEl.classList.add("hidden");
+      }
       renderSeatGrid(gridEl, latestSeats, selectedSeats, toggleSeat, syncInFlight);
       seatMapEl.classList.remove("hidden");
+      if (silent && !mapWasVisible) {
+        loadingEl.classList.add("hidden");
+      }
     } catch (err) {
-      loadingEl.classList.add("hidden");
+      if (!silent) {
+        loadingEl.classList.add("hidden");
+      }
       showError(errorEl, `Could not load seat map: ${err.message}`);
     }
   }
@@ -242,8 +258,12 @@
       orderStatus = order.status;
       selectedSeats = new Set(order.held_seat_ids || []);
       orderStatusEl.textContent = order.status;
-      timerSeconds = order.timer_remaining_seconds || 0;
-      startTimer();
+      timerSeconds = reconcileTimerSeconds(
+        timerSeconds,
+        order.timer_remaining_seconds || 0,
+        { force: true }
+      );
+      restartTimer();
       return order;
     } finally {
       syncInFlight = false;
@@ -259,7 +279,7 @@
       orderStatus = order.status;
       orderStatusEl.textContent = order.status;
       timerSeconds = 0;
-      startTimer();
+      restartTimer();
       setStoredOrderID(null);
       selectedSeats.clear();
       await loadSeatMap(flightID);
@@ -272,21 +292,34 @@
     }
   }
 
-  function startTimer() {
+  function stopTimer() {
     if (timerHandle) {
       clearInterval(timerHandle);
+      timerHandle = null;
     }
+  }
+
+  function startTimer() {
     timerDisplay.textContent = formatTimer(timerSeconds);
     if (timerSeconds <= 0) {
+      stopTimer();
+      return;
+    }
+    if (timerHandle) {
       return;
     }
     timerHandle = setInterval(() => {
       timerSeconds -= 1;
       timerDisplay.textContent = formatTimer(timerSeconds);
       if (timerSeconds <= 0) {
-        clearInterval(timerHandle);
+        stopTimer();
       }
     }, 1000);
+  }
+
+  function restartTimer() {
+    stopTimer();
+    startTimer();
   }
 })();
 

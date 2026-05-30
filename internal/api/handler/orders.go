@@ -173,7 +173,8 @@ func (h *OrderHandler) StreamOrder(c *gin.Context) {
 		return
 	}
 
-	ticker := time.NewTicker(1 * time.Second)
+	lastSent := orderStreamSnapshot(status)
+	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -185,6 +186,11 @@ func (h *OrderHandler) StreamOrder(c *gin.Context) {
 			if err != nil {
 				return
 			}
+			snapshot := orderStreamSnapshot(status)
+			if snapshot == lastSent {
+				continue
+			}
+			lastSent = snapshot
 			if !sendStatus(status) {
 				return
 			}
@@ -193,6 +199,17 @@ func (h *OrderHandler) StreamOrder(c *gin.Context) {
 			}
 		}
 	}
+}
+
+// orderStreamSnapshot fingerprints order state for SSE dedup (timer excluded; UI counts down locally).
+func orderStreamSnapshot(status booking.StatusResponse) string {
+	resp := toOrderResponse(status)
+	resp.TimerRemainingSeconds = 0
+	payload, err := json.Marshal(resp)
+	if err != nil {
+		return ""
+	}
+	return string(payload)
 }
 
 func toOrderResponse(status booking.StatusResponse) dto.OrderResponse {

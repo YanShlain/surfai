@@ -1,5 +1,6 @@
 const API_BASE = "/api/v1";
 const ORDER_STORAGE_KEY = "neon_order_id";
+const ORDER_POLL_INTERVAL_MS = 5000;
 
 async function fetchJSON(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, options);
@@ -93,6 +94,23 @@ function setStoredOrderID(orderID) {
 
 function isTerminalStatus(status) {
   return status === "CONFIRMED" || status === "EXPIRED" || status === "CANCELLED" || status === "PAYMENT_FAILED";
+}
+
+function orderSeatsSignature(status, heldSeatIDs) {
+  const seats = heldSeatIDs || [];
+  return `${status}|${[...seats].sort().join(",")}`;
+}
+
+/** Align local countdown with server; force=true after seat change or explicit refresh. */
+function reconcileTimerSeconds(localSeconds, serverSeconds, { force = false } = {}) {
+  const server = Math.max(0, serverSeconds || 0);
+  if (force || localSeconds <= 0) {
+    return server;
+  }
+  if (Math.abs(localSeconds - server) > 3) {
+    return server;
+  }
+  return localSeconds;
 }
 
 function escapeHTML(value) {

@@ -66,16 +66,16 @@
   async function bootstrap() {
     hideError(errorEl);
     try {
-      await loadOrder();
+      await loadOrder({ resetTimer: true });
       startLiveUpdates();
     } catch (err) {
       showError(errorEl, err.message);
     }
   }
 
-  async function loadOrder() {
+  async function loadOrder(options = {}) {
     const order = await fetchJSON(`/orders/${encodeURIComponent(orderID)}`);
-    renderOrder(order);
+    renderOrder(order, options);
   }
 
   function methodsRemaining(order) {
@@ -169,8 +169,19 @@
     );
   }
 
-  function renderOrder(order) {
+  function renderOrder(order, { resetTimer = false } = {}) {
+    const prev = latestOrder;
     latestOrder = order;
+    const signatureBefore = prev
+      ? orderSeatsSignature(prev.status, prev.held_seat_ids)
+      : "";
+    const signatureAfter = orderSeatsSignature(order.status, order.held_seat_ids);
+    const forceTimer =
+      resetTimer ||
+      !prev ||
+      signatureBefore !== signatureAfter ||
+      isTerminalStatus(order.status);
+
     const attemptsOnCode = currentCodeAttempts(order);
     const methodsUsed = order.methods_used ?? 0;
     const remaining = methodsRemaining(order);
@@ -182,8 +193,23 @@
       methodsUsedEl.textContent = `${methodsUsed} / ${MAX_PAYMENT_METHODS} (remaining: ${remaining})`;
     }
     renderPaymentEvents(order.payment_events || []);
-    timerSeconds = order.timer_remaining_seconds || 0;
-    startTimer();
+
+    if (isTerminalStatus(order.status)) {
+      timerSeconds = 0;
+      restartTimer();
+    } else {
+      timerSeconds = reconcileTimerSeconds(
+        timerSeconds,
+        order.timer_remaining_seconds || 0,
+        { force: forceTimer }
+      );
+      if (forceTimer) {
+        restartTimer();
+      } else {
+        timerDisplay.textContent = formatTimer(timerSeconds);
+        startTimer();
+      }
+    }
 
     if (order.status === "CONFIRMED") {
       showConfirmation(order);
@@ -397,7 +423,7 @@
       } catch {
         // best effort polling
       }
-    }, 2000);
+    }, ORDER_POLL_INTERVAL_MS);
   }
 
   function stopLiveUpdates() {
@@ -411,20 +437,33 @@
     }
   }
 
-  function startTimer() {
+  function stopTimer() {
     if (timerHandle) {
       clearInterval(timerHandle);
+      timerHandle = null;
     }
+  }
+
+  function startTimer() {
     timerDisplay.textContent = formatTimer(timerSeconds);
     if (timerSeconds <= 0) {
+      stopTimer();
+      return;
+    }
+    if (timerHandle) {
       return;
     }
     timerHandle = setInterval(() => {
       timerSeconds -= 1;
       timerDisplay.textContent = formatTimer(timerSeconds);
       if (timerSeconds <= 0) {
-        clearInterval(timerHandle);
+        stopTimer();
       }
     }, 1000);
+  }
+
+  function restartTimer() {
+    stopTimer();
+    startTimer();
   }
 })();
