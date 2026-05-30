@@ -15,21 +15,28 @@ import (
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
+	addr := envOrDefault("API_ADDR", ":8080")
+	ln, err := app.AcquireListen(addr)
+	if err != nil {
+		slog.Error("cannot start api server", "addr", addr, "error", app.ListenError(addr, err))
+		os.Exit(1)
+	}
+
 	ctx := context.Background()
 	application, err := app.BootstrapApp(ctx, app.DefaultAPIOptions(memory.DefaultSeedConfig()))
 	if err != nil {
 		slog.Error("bootstrap failed", "error", err)
+		_ = ln.Close()
 		os.Exit(1)
 	}
 	defer application.Close()
 
 	router := application.NewRouter()
-	addr := envOrDefault("API_ADDR", ":8080")
-	srv := &http.Server{Addr: addr, Handler: router}
+	srv := &http.Server{Handler: router}
 
 	go func() {
 		slog.Info("starting api server", "addr", addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			slog.Error("server stopped", "error", err)
 			os.Exit(1)
 		}

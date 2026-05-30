@@ -73,6 +73,18 @@ test.describe("MVP-E success-flow journeys (E-E1, E-E2, E-E5, E-E6, E-E7, E-E8)"
       .toBeLessThanOrEqual(initial - 2);
   });
 
+  test("E-E9: CREATED order shows no hold timer until a seat is held", async ({ page }) => {
+    await page.goto(`${server.baseURL}/`);
+    await startOrder(page, 0);
+
+    await expect(page.locator("#order-status")).toHaveText("CREATED");
+    await expect(page.locator("#timer-display")).toHaveText("—");
+
+    await clickAnyAvailableSeat(page);
+    await expect(page.locator("#order-status")).toHaveText("SEATS_HELD");
+    await expect(page.locator("#timer-display")).not.toHaveText("—");
+  });
+
   test("E-E5: flight inventories are isolated", async ({ browser }) => {
     const holderCtx = await browser.newContext();
     const otherFlightCtx = await browser.newContext();

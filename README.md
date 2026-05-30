@@ -157,14 +157,18 @@ go run ./cmd/api
 
 ### Troubleshooting
 
-**Port 8080 already in use**
+**Port already in use (second `go run ./cmd/api`)**
+
+The API binds `API_ADDR` **before** starting Temporal or the worker. A second instance on the same port exits immediately with a clear error instead of leaving orphaned Temporal processes.
+
+To stop the existing server:
 
 ```powershell
 netstat -ano | findstr ":8080"
 Stop-Process -Id <PID> -Force
 ```
 
-Or use a different port:
+Or use a different port (E2E tests use `:8081`, `:8082`, etc.):
 
 ```powershell
 $env:API_ADDR = ":8081"

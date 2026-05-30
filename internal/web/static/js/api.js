@@ -101,13 +101,41 @@ function orderSeatsSignature(status, heldSeatIDs) {
   return `${status}|${[...seats].sort().join(",")}`;
 }
 
+/** Hold timer runs only after at least one seat is held (not in bare CREATED). */
+function shouldShowHoldTimer(order) {
+  if (!order || isTerminalStatus(order.status)) {
+    return false;
+  }
+  const heldCount = (order.held_seat_ids || []).length;
+  if (order.status === "CREATED" && heldCount === 0) {
+    return false;
+  }
+  return heldCount > 0 || order.status === "SEATS_HELD" || order.status === "AWAITING_PAYMENT";
+}
+
+function effectiveTimerSeconds(order) {
+  if (!shouldShowHoldTimer(order)) {
+    return 0;
+  }
+  return Math.max(0, order.timer_remaining_seconds || 0);
+}
+
+function updateTimerDisplay(el, seconds, show) {
+  if (!show || seconds <= 0) {
+    el.textContent = "—";
+    return;
+  }
+  el.textContent = formatTimer(seconds);
+}
+
 /** Align local countdown with server; force=true after seat change or explicit refresh. */
 function reconcileTimerSeconds(localSeconds, serverSeconds, { force = false } = {}) {
   const server = Math.max(0, serverSeconds || 0);
   if (force || localSeconds <= 0) {
     return server;
   }
-  if (Math.abs(localSeconds - server) > 3) {
+  // Trust server when it falls behind (expiry / drift). Never snap forward on poll.
+  if (server < localSeconds - 2) {
     return server;
   }
   return localSeconds;

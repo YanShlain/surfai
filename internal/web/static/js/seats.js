@@ -94,23 +94,22 @@
     orderStatusEl.textContent = order.status;
     selectedSeats = new Set(order.held_seat_ids || []);
     const signatureAfter = seatMapKey();
+    const showTimer = shouldShowHoldTimer(order);
+    const serverTimer = effectiveTimerSeconds(order);
     const forceTimer =
       resetTimer || signatureBefore !== signatureAfter || isTerminalStatus(order.status);
 
-    if (isTerminalStatus(order.status)) {
+    if (isTerminalStatus(order.status) || !showTimer) {
       timerSeconds = 0;
-      restartTimer();
+      stopTimer();
+      updateTimerDisplay(timerDisplay, 0, false);
     } else {
-      timerSeconds = reconcileTimerSeconds(
-        timerSeconds,
-        order.timer_remaining_seconds || 0,
-        { force: forceTimer }
-      );
+      timerSeconds = reconcileTimerSeconds(timerSeconds, serverTimer, { force: forceTimer });
       if (forceTimer) {
-        restartTimer();
+        restartTimer(showTimer);
       } else {
-        timerDisplay.textContent = formatTimer(timerSeconds);
-        startTimer();
+        updateTimerDisplay(timerDisplay, timerSeconds, showTimer);
+        startTimer(showTimer);
       }
     }
 
@@ -258,12 +257,13 @@
       orderStatus = order.status;
       selectedSeats = new Set(order.held_seat_ids || []);
       orderStatusEl.textContent = order.status;
+      const showTimer = shouldShowHoldTimer(order);
       timerSeconds = reconcileTimerSeconds(
         timerSeconds,
-        order.timer_remaining_seconds || 0,
+        effectiveTimerSeconds(order),
         { force: true }
       );
-      restartTimer();
+      restartTimer(showTimer);
       return order;
     } finally {
       syncInFlight = false;
@@ -279,7 +279,8 @@
       orderStatus = order.status;
       orderStatusEl.textContent = order.status;
       timerSeconds = 0;
-      restartTimer();
+      stopTimer();
+      updateTimerDisplay(timerDisplay, 0, false);
       setStoredOrderID(null);
       selectedSeats.clear();
       await loadSeatMap(flightID);
@@ -299,9 +300,9 @@
     }
   }
 
-  function startTimer() {
-    timerDisplay.textContent = formatTimer(timerSeconds);
-    if (timerSeconds <= 0) {
+  function startTimer(showTimer = true) {
+    updateTimerDisplay(timerDisplay, timerSeconds, showTimer);
+    if (!showTimer || timerSeconds <= 0) {
       stopTimer();
       return;
     }
@@ -310,16 +311,17 @@
     }
     timerHandle = setInterval(() => {
       timerSeconds -= 1;
-      timerDisplay.textContent = formatTimer(timerSeconds);
+      updateTimerDisplay(timerDisplay, timerSeconds, true);
       if (timerSeconds <= 0) {
         stopTimer();
+        updateTimerDisplay(timerDisplay, 0, false);
       }
     }, 1000);
   }
 
-  function restartTimer() {
+  function restartTimer(showTimer = true) {
     stopTimer();
-    startTimer();
+    startTimer(showTimer);
   }
 })();
 

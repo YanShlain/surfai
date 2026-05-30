@@ -112,20 +112,22 @@
     }
     renderPaymentEvents(order.payment_events || []);
 
-    if (isTerminalStatus(order.status)) {
+    if (isTerminalStatus(order.status) || !shouldShowHoldTimer(order)) {
       timerSeconds = 0;
-      restartTimer();
+      stopTimer();
+      updateTimerDisplay(timerDisplay, 0, false);
     } else {
+      const showTimer = shouldShowHoldTimer(order);
       timerSeconds = reconcileTimerSeconds(
         timerSeconds,
-        order.timer_remaining_seconds || 0,
+        effectiveTimerSeconds(order),
         { force: forceTimer }
       );
       if (forceTimer) {
-        restartTimer();
+        restartTimer(showTimer);
       } else {
-        timerDisplay.textContent = formatTimer(timerSeconds);
-        startTimer();
+        updateTimerDisplay(timerDisplay, timerSeconds, showTimer);
+        startTimer(showTimer);
       }
     }
 
@@ -333,9 +335,9 @@
     }
   }
 
-  function startTimer() {
-    timerDisplay.textContent = formatTimer(timerSeconds);
-    if (timerSeconds <= 0) {
+  function startTimer(showTimer = true) {
+    updateTimerDisplay(timerDisplay, timerSeconds, showTimer);
+    if (!showTimer || timerSeconds <= 0) {
       stopTimer();
       return;
     }
@@ -344,15 +346,16 @@
     }
     timerHandle = setInterval(() => {
       timerSeconds -= 1;
-      timerDisplay.textContent = formatTimer(timerSeconds);
+      updateTimerDisplay(timerDisplay, timerSeconds, true);
       if (timerSeconds <= 0) {
         stopTimer();
+        updateTimerDisplay(timerDisplay, 0, false);
       }
     }, 1000);
   }
 
-  function restartTimer() {
+  function restartTimer(showTimer = true) {
     stopTimer();
-    startTimer();
+    startTimer(showTimer);
   }
 })();
