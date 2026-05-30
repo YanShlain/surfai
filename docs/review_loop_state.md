@@ -14,21 +14,23 @@
 ## Test baseline
 
 ```
-Last run: 2026-05-29
+Last run: 2026-05-30
 Command: go test ./... -count=1 -timeout 120s
 Result: PASS (exit 0)
-Note: reconcile tests added; handler validation layering; doc drift fixes.
+
+E2E: npm run test:e2e — 17/17 PASS (E-E1–E-E10, IR-1–IR-7)
+Traceability: docs/qa_review.md
 ```
 
 ## Scenario coverage (S-1..S-5)
 
 | Scenario | Description | Test(s) | Status |
 |----------|-------------|---------|--------|
-| S-1 | Happy path | `TestI_C1_PaymentHappyPath`, `TestU_C1_PaymentSuccessConfirmsSeats` | PASS |
-| S-2 | Timer refresh on seat change | `TestI_B1_TimerRefreshAfterSeatChange`, `TestU_B2_SeatChangeResetsTimer` | PASS |
-| S-3 | Method exhaustion (3×3) | `TestI_D1_AttemptExhaustionReleasesSeats`, `TestI_D3_NewMethodSwitchThenSuccess`, E-E3 Playwright | PASS |
-| S-4 | Late payment / timer expiry during payment | `TestI_D2_LatePaymentRejectedOnExpiry`, `TestU_D4_TimerRejectsInFlightPayment` | PASS |
-| S-5 | Multi-flight isolation | `TestI_B2_MultiFlightHoldIsolation`, `TestU_B7_IsolatedFlightsAllowSameSeatID` | PASS |
+| S-1 | Happy path | `TestI_C1_PaymentHappyPath`, `TestU_C1_PaymentSuccessConfirmsSeats`, E-E1 | PASS |
+| S-2 | Timer refresh on seat change | `TestI_B1_TimerRefreshAfterSeatChange`, `TestU_B2_SeatChangeResetsTimer`, E-E2 | PASS |
+| S-3 | Payment exhaustion (3× fail) | `TestI_D1_AttemptExhaustionReleasesSeats`, E-E3, IR-3 | PASS |
+| S-4 | Late payment / timer expiry during payment | `TestI_D2_LatePaymentRejectedOnExpiry`, `TestU_D4_TimerRejectsInFlightPayment`, E-E4, IR-4, IR-7 | PASS |
+| S-5 | Multi-flight isolation | `TestI_B2_MultiFlightHoldIsolation`, `TestU_B7_IsolatedFlightsAllowSameSeatID`, E-E5 | PASS |
 
 ## Test matrix snapshot (final_plan.md §9)
 
@@ -38,7 +40,7 @@ Note: reconcile tests added; handler validation layering; doc drift fixes.
 | MVP-B | yes | — | |
 | MVP-C | yes | — | |
 | MVP-D | yes | — | U-D1..U-D6 |
-| MVP-E | yes | CI gate | E-E1–E-E7 in Playwright; not in `go test ./...` |
+| MVP-E | yes | CI gate | E-E1–E-E10 + IR-1–IR-7 in Playwright ([qa_review.md](qa_review.md)); not in `go test ./...` |
 
 ## Expert summary (grade-a-plus cycle 2b — partial re-review pending)
 

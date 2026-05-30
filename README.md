@@ -22,8 +22,7 @@ Neon lets anonymous users book seats on one or more flights. Each flight has its
 | Rule | Detail |
 |------|--------|
 | Code format | Exactly 5 digits |
-| Attempts per method | Up to 3 tries with the same code |
-| Methods per order | Up to 3 different codes (changing code requires **Try new payment method**) |
+| Attempts per order | Up to **3 consecutive failed** payment attempts (any codes); order becomes `PAYMENT_FAILED` |
 | Timer during payment | The 15-minute timer **never pauses**, even while payment is validating |
 
 ### Order states
@@ -36,7 +35,7 @@ Neon lets anonymous users book seats on one or more flights. Each flight has its
 | `CONFIRMED` | Terminal success — seats booked |
 | `EXPIRED` | Terminal failure — timer reached zero |
 | `CANCELLED` | Terminal failure — user cancelled |
-| `PAYMENT_FAILED` | Terminal failure — all payment methods exhausted |
+| `PAYMENT_FAILED` | Terminal failure — 3 consecutive payment failures |
 
 ---
 
@@ -75,7 +74,7 @@ flowchart TB
 | Layer | Technology | Owns |
 |-------|------------|------|
 | **Presentation** | Go (Gin), Temporal Client | HTTP routes, DTOs, workflow start/update/query, static web UI |
-| **Service** | Temporal Workflow + Activities | Order state machine, timer, 3×3 payment rules, atomic hold swap |
+| **Service** | Temporal Workflow + Activities | Order state machine, timer, payment retry limits, atomic hold swap |
 | **Data** | Repository interfaces | Seat and flight inventory (in-memory for MVP) |
 
 ### Key design decisions
@@ -83,7 +82,7 @@ flowchart TB
 - **Single workflow per order** — one `BookingWorkflow` owns the full lifecycle (timer, holds, payment, expiry). Workflow ID equals `order_id`.
 - **Read/write split for seats** — `GET /api/v1/flights/{flight_id}/seats` reads the seat repository directly; all seat mutations go through Temporal activities.
 - **Atomic seat updates** — `SwapSeats` activity uses repository `SwapHold`; rollback-safe on conflict.
-- **Workflow updates for payment** — `UpdateSubmitPayment` and `UpdateStartNewPaymentMethod` run synchronously (no signal polling).
+- **Workflow updates for payment** — `UpdateSubmitPayment` runs synchronously (no signal polling).
 - **Hold reconciliation** — on startup, running workflows re-apply seat holds into memory after process restart.
 - **Two binaries** — `cmd/api` (HTTP + embedded worker by default) and `cmd/worker` (standalone). **In-memory inventory requires a single shared process** unless you add durable storage.
 - **MVP storage** — in-memory repositories seeded at startup. Postgres adapter planned via `SeatRepository` interface.
@@ -96,7 +95,6 @@ flowchart TB
 | GET | `/api/v1/flights/{flight_id}/seats` | Seat map (`?order_id=` highlights caller's holds) |
 | POST | `/api/v1/orders` | Start booking (`{ "flight_id" }`) |
 | PATCH | `/api/v1/orders/{order_id}/seats` | Update held seats |
-| POST | `/api/v1/orders/{order_id}/payment/new-method` | Switch to a new payment code |
 | POST | `/api/v1/orders/{order_id}/payment` | Submit 5-digit payment code |
 | POST | `/api/v1/orders/{order_id}/cancel` | Cancel order |
 | GET | `/api/v1/orders/{order_id}` | Order status, timer, payment events |
@@ -168,7 +166,7 @@ netstat -ano | findstr ":8080"
 Stop-Process -Id <PID> -Force
 ```
 
-Or use a different port (E2E tests use `:8081`, `:8082`, etc.):
+Or use a different port (E2E tests use `:8081`, `:41882`–`:41886`, etc.):
 
 ```powershell
 $env:API_ADDR = ":8081"
@@ -188,6 +186,71 @@ go run ./cmd/worker
 ```
 
 In typical local development, `go run ./cmd/api` is sufficient.
+
+---
+
+## Testing
+
+### Go unit and integration tests
+
+```powershell
+go test ./... -count=1 -timeout 120s
+```
+
+### End-to-end tests (Playwright)
+
+Browser tests live in [`tests/e2e/`](tests/e2e/). Each test starts its own `go run ./cmd/api` with embedded Temporal and drives the static UI. Traceability to [docs/initial_requirements.md](docs/initial_requirements.md) is in [docs/qa_review.md](docs/qa_review.md).
+
+**Prerequisites:** Node.js (for npm), Go 1.24+ on `PATH`.
+
+**First-time setup:**
+
+```powershell
+cd c:\Users\YanSh\Dev\Neon
+npm install
+npx playwright install chromium
+```
+
+**Run the full E2E suite:**
+
+```powershell
+npm run test:e2e
+```
+
+**Run a single spec or test:**
+
+```powershell
+npx playwright test tests/e2e/booking-flow.spec.ts
+npx playwright test -g "IR-3"
+```
+
+The harness uses fixed ports (`8080`, `8081`, `41882`–`41886`) and kills any stale listener on those ports before each server start. Tests also clear inherited `PAYMENT_*` shell variables so failure scenarios are deterministic.
+
+**Stop leftover test or dev servers**
+
+If a run is interrupted or ports stay busy, stop listeners on the E2E ports:
+
+```powershell
+$ports = 8080, 8081, 41882, 41883, 41884, 41886
+foreach ($port in $ports) {
+  $lines = netstat -ano | findstr ":$port" | findstr LISTENING
+  foreach ($line in $lines) {
+    $pid = ($line -split '\s+')[-1]
+    if ($pid -and $pid -ne '0') {
+      Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+```
+
+To stop only the default dev server on port 8080:
+
+```powershell
+netstat -ano | findstr ":8080"
+Stop-Process -Id <PID> -Force
+```
+
+Embedded Temporal dev processes exit when their parent `go run ./cmd/api` is stopped. If Temporal CLI children remain, stop the parent API process first.
 
 ---
 
@@ -221,4 +284,5 @@ docs/
 | [docs/final_requierments.md](docs/final_requierments.md) | Functional requirements, state machine, scenarios |
 | [docs/final_plan.md](docs/final_plan.md) | Three-tier architecture, API contract, MVP phases, test matrix |
 | [docs/manual_tests.md](docs/manual_tests.md) | Step-by-step manual test scripts |
+| [docs/qa_review.md](docs/qa_review.md) | E2E traceability vs initial requirements, mismatches |
 | [docs/design_overview.md](docs/design_overview.md) | Detailed design reference and component map |

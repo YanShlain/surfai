@@ -1,5 +1,5 @@
 import { request } from "@playwright/test";
-import { ChildProcess, spawn } from "child_process";
+import { ChildProcess, execSync, spawn } from "child_process";
 
 type StartServerOptions = {
   port: number;
@@ -15,6 +15,10 @@ function buildServerEnv(opts: StartServerOptions): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   env.API_ADDR = `:${opts.port}`;
   env.TEMPORAL_AUTO_DEV = "1";
+  delete env.PAYMENT_NEVER_FAIL;
+  delete env.PAYMENT_ALWAYS_FAIL;
+  delete env.PAYMENT_FAIL_UNTIL;
+  delete env.PAYMENT_VALIDATION_DELAY;
   for (const [key, value] of Object.entries(opts.env ?? {})) {
     env[key] = value;
   }
@@ -25,6 +29,7 @@ function buildServerEnv(opts: StartServerOptions): NodeJS.ProcessEnv {
 }
 
 export async function startNeonServer(opts: StartServerOptions): Promise<NeonServer> {
+  await freePort(opts.port);
   const baseURL = `http://127.0.0.1:${opts.port}`;
   const goCmd = process.platform === "win32" ? "go.exe" : "go";
   const child = spawn(goCmd, ["run", "./cmd/api"], {
@@ -42,6 +47,44 @@ export async function startNeonServer(opts: StartServerOptions): Promise<NeonSer
       await stopChild(child);
     },
   };
+}
+
+async function freePort(port: number): Promise<void> {
+  if (process.platform === "win32") {
+    try {
+      const out = execSync(`netstat -ano | findstr ":${port}" | findstr LISTENING`, {
+        encoding: "utf8",
+      });
+      const pids = new Set<string>();
+      for (const line of out.split("\n")) {
+        const parts = line.trim().split(/\s+/);
+        const pid = parts[parts.length - 1];
+        if (pid && pid !== "0") {
+          pids.add(pid);
+        }
+      }
+      for (const pid of pids) {
+        try {
+          execSync(`taskkill /PID ${pid} /F`);
+        } catch {
+          // process may have already exited
+        }
+      }
+      if (pids.size > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    } catch {
+      // port already free
+    }
+    return;
+  }
+
+  try {
+    execSync(`fuser -k ${port}/tcp`, { stdio: "ignore" });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  } catch {
+    // port already free
+  }
 }
 
 async function waitForServerReady(baseURL: string, child: ChildProcess): Promise<void> {
