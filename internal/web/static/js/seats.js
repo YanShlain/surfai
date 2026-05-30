@@ -23,6 +23,7 @@
   let timerHandle = null;
   let latestSeats = [];
   let syncInFlight = false;
+  let seatSyncPromise = null;
   let orderStatus = "";
   let pollHandle = null;
 
@@ -90,14 +91,15 @@
 
   function applyOrderState(order, { resetTimer = false } = {}) {
     const signatureBefore = seatMapKey();
+    const seatsBefore = heldSeatsSignature([...selectedSeats]);
     orderStatus = order.status;
     orderStatusEl.textContent = order.status;
     selectedSeats = new Set(order.held_seat_ids || []);
     const signatureAfter = seatMapKey();
+    const seatsChanged = seatsBefore !== heldSeatsSignature([...selectedSeats]);
     const showTimer = shouldShowHoldTimer(order);
     const serverTimer = effectiveTimerSeconds(order);
-    const forceTimer =
-      resetTimer || signatureBefore !== signatureAfter || isTerminalStatus(order.status);
+    const forceTimer = resetTimer || seatsChanged;
 
     if (isTerminalStatus(order.status) || !showTimer) {
       timerSeconds = 0;
@@ -135,10 +137,8 @@
     }
     pollHandle = setInterval(async () => {
       try {
-        const seatMapChanged = await loadOrder();
-        if (seatMapChanged) {
-          await loadSeatMap(flightID, { silent: true });
-        }
+        await loadOrder();
+        await loadSeatMap(flightID, { silent: true });
       } catch {
         // best effort polling
       }
@@ -175,19 +175,30 @@
     hideError(errorEl);
     payBtn.disabled = true;
     try {
+      if (seatSyncPromise) {
+        await seatSyncPromise;
+      }
+
       let order;
-      if (orderStatus === "SEATS_HELD" && selectedSeats.size > 0) {
+      if (selectedSeats.size > 0) {
         order = await fetchJSON(`/orders/${encodeURIComponent(orderID)}`);
         if (!heldSeatsMatch(order.held_seat_ids, selectedSeats)) {
           order = await syncSeatsToServer();
         }
       } else {
-        order = await syncSeatsToServer();
+        order = await fetchJSON(`/orders/${encodeURIComponent(orderID)}`);
       }
       if (order.status !== "SEATS_HELD" || !(order.held_seat_ids || []).length) {
         showError(errorEl, "Hold at least one seat before proceeding to payment.");
         return;
       }
+      const serverTimer = effectiveTimerSeconds(order);
+      const carried = reconcileTimerSeconds(
+        timerSeconds > 0 ? timerSeconds : serverTimer,
+        serverTimer,
+        { force: false }
+      );
+      setCarriedHoldTimer(carried);
       window.location.href = `/payment?flight_id=${encodeURIComponent(flightID)}&order_id=${encodeURIComponent(orderID)}`;
     } catch (err) {
       showError(errorEl, err.message);
@@ -246,6 +257,12 @@
       await loadSeatMap(flightID);
     } catch (err) {
       showError(errorEl, err.message);
+      try {
+        await loadOrder();
+        await loadSeatMap(flightID, { silent: true });
+      } catch {
+        // best effort resync after hold conflict or other errors
+      }
     }
   }
 
@@ -258,12 +275,22 @@
   }
 
   async function syncSeatsToServer() {
-    if (syncInFlight) {
-      return { status: orderStatus, held_seat_ids: [...selectedSeats] };
+    if (seatSyncPromise) {
+      return seatSyncPromise;
     }
+    seatSyncPromise = syncSeatsToServerNow();
+    try {
+      return await seatSyncPromise;
+    } finally {
+      seatSyncPromise = null;
+    }
+  }
+
+  async function syncSeatsToServerNow() {
     syncInFlight = true;
     payBtn.disabled = true;
     try {
+      const seatsBefore = heldSeatsSignature([...selectedSeats]);
       const payloadSeatIds = [...selectedSeats].sort();
       const order = await patchJSON(`/orders/${encodeURIComponent(orderID)}/seats`, {
         seat_ids: payloadSeatIds,
@@ -272,12 +299,16 @@
       selectedSeats = new Set(order.held_seat_ids || []);
       orderStatusEl.textContent = order.status;
       const showTimer = shouldShowHoldTimer(order);
-      timerSeconds = reconcileTimerSeconds(
-        timerSeconds,
-        effectiveTimerSeconds(order),
-        { force: true }
-      );
-      restartTimer(showTimer);
+      const serverTimer = effectiveTimerSeconds(order);
+      const seatsChanged = seatsBefore !== heldSeatsSignature([...selectedSeats]);
+      const timerWasReset = seatsChanged;
+      timerSeconds = reconcileTimerSeconds(timerSeconds, serverTimer, { force: timerWasReset });
+      if (timerWasReset) {
+        restartTimer(showTimer);
+      } else {
+        updateTimerDisplay(timerDisplay, timerSeconds, showTimer);
+        startTimer(showTimer);
+      }
       return order;
     } finally {
       syncInFlight = false;
@@ -360,28 +391,24 @@ function appendSeatOrPlaceholder(parent, seatByKey, row, col, selectedSeats, onT
   }
 }
 
-function buildColLabelRow(leftCount, rightCount, hasAisle, withLavatory) {
+function buildColLabelRow(leftCols, rightCols, hasAisle) {
   const row = document.createElement("div");
   row.className = "cabin-row cabin-row--col-labels";
   row.appendChild(cell("corner", ""));
-  for (let i = 1; i <= leftCount; i += 1) {
-    row.appendChild(cell("col-label", String(i)));
-  }
+  leftCols.forEach((col) => {
+    row.appendChild(cell("col-label", col));
+  });
   if (hasAisle) {
     row.appendChild(cell("seat-aisle", ""));
   }
-  for (let i = 1; i <= rightCount; i += 1) {
-    row.appendChild(cell("col-label", String(i)));
-  }
-  if (withLavatory) {
-    const lav = cell("cabin-lavatory", "");
-    lav.setAttribute("aria-hidden", "true");
-    row.appendChild(lav);
-  }
+  rightCols.forEach((col) => {
+    row.appendChild(cell("col-label", col));
+  });
+  row.appendChild(cell("corner", ""));
   return row;
 }
 
-function buildSeatRow(row, leftCols, rightCols, hasAisle, seatByKey, selectedSeats, onToggle, syncing, withLavatory) {
+function buildSeatRow(row, leftCols, rightCols, hasAisle, seatByKey, selectedSeats, onToggle, syncing) {
   const rowEl = document.createElement("div");
   rowEl.className = "cabin-row";
   rowEl.appendChild(cell("row-label", String(row)));
@@ -394,11 +421,9 @@ function buildSeatRow(row, leftCols, rightCols, hasAisle, seatByKey, selectedSea
   rightCols.forEach((col) => {
     appendSeatOrPlaceholder(rowEl, seatByKey, row, col, selectedSeats, onToggle, syncing);
   });
-  if (withLavatory) {
-    const lav = cell("cabin-lavatory", "");
-    lav.setAttribute("aria-hidden", "true");
-    rowEl.appendChild(lav);
-  }
+  const rowLabelEnd = cell("row-label row-label--end", String(row));
+  rowLabelEnd.setAttribute("aria-hidden", "true");
+  rowEl.appendChild(rowLabelEnd);
   return rowEl;
 }
 
@@ -415,7 +440,7 @@ function buildAisleArrows() {
   return wrap;
 }
 
-function buildHorizontalAisle(leftCount, rightCount, hasAisle, withLavatory) {
+function buildHorizontalAisle(leftCount, rightCount, hasAisle) {
   const aisle = document.createElement("div");
   aisle.className = "cabin-row aisle-horizontal";
   aisle.appendChild(cell("corner", ""));
@@ -430,11 +455,7 @@ function buildHorizontalAisle(leftCount, rightCount, hasAisle, withLavatory) {
   for (let i = 0; i < rightCount; i += 1) {
     aisle.appendChild(cell("aisle-spacer", ""));
   }
-  if (withLavatory) {
-    const lav = cell("cabin-lavatory", "");
-    lav.setAttribute("aria-hidden", "true");
-    aisle.appendChild(lav);
-  }
+  aisle.appendChild(cell("corner", ""));
   return aisle;
 }
 
@@ -442,13 +463,12 @@ function cabinGridTracks(leftCols, rightCols, hasAisle) {
   const rowLabelW = "1.75rem";
   const seatW = "2.25rem";
   const aisleW = "1.75rem";
-  const lavatoryW = "1.5rem";
   return [
     rowLabelW,
     ...leftCols.map(() => seatW),
     ...(hasAisle ? [aisleW] : []),
     ...rightCols.map(() => seatW),
-    lavatoryW,
+    rowLabelW,
   ].join(" ");
 }
 
@@ -474,7 +494,6 @@ function renderSeatGrid(container, seats, selectedSeats, onToggle, syncing) {
   const { leftCols, rightCols, hasAisle } = splitColsAtAisle(cols);
   const topRows = rows.filter((r) => r <= 5);
   const bottomRows = rows.filter((r) => r > 5);
-  const withLavatory = true;
   const gridTracks = cabinGridTracks(leftCols, rightCols, hasAisle);
 
   container.className = "seat-grid";
@@ -488,16 +507,16 @@ function renderSeatGrid(container, seats, selectedSeats, onToggle, syncing) {
 
   const topSection = document.createElement("div");
   topSection.className = "seat-map-section seat-map-section--top";
-  topSection.appendChild(buildColLabelRow(leftCols.length, rightCols.length, hasAisle, withLavatory));
+  topSection.appendChild(buildColLabelRow(leftCols, rightCols, hasAisle));
   topRows.forEach((row) => {
     topSection.appendChild(
-      buildSeatRow(row, leftCols, rightCols, hasAisle, seatByKey, selectedSeats, onToggle, syncing, withLavatory)
+      buildSeatRow(row, leftCols, rightCols, hasAisle, seatByKey, selectedSeats, onToggle, syncing)
     );
   });
   cabin.appendChild(topSection);
 
   if (topRows.length > 0 && bottomRows.length > 0) {
-    cabin.appendChild(buildHorizontalAisle(leftCols.length, rightCols.length, hasAisle, withLavatory));
+    cabin.appendChild(buildHorizontalAisle(leftCols.length, rightCols.length, hasAisle));
   }
 
   if (bottomRows.length > 0) {
@@ -505,10 +524,10 @@ function renderSeatGrid(container, seats, selectedSeats, onToggle, syncing) {
     bottomSection.className = "seat-map-section seat-map-section--bottom";
     bottomRows.forEach((row) => {
       bottomSection.appendChild(
-        buildSeatRow(row, leftCols, rightCols, hasAisle, seatByKey, selectedSeats, onToggle, syncing, withLavatory)
+        buildSeatRow(row, leftCols, rightCols, hasAisle, seatByKey, selectedSeats, onToggle, syncing)
       );
     });
-    bottomSection.appendChild(buildColLabelRow(leftCols.length, rightCols.length, hasAisle, withLavatory));
+    bottomSection.appendChild(buildColLabelRow(leftCols, rightCols, hasAisle));
     cabin.appendChild(bottomSection);
   }
 

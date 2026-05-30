@@ -1,6 +1,7 @@
 const API_BASE = "/api/v1";
 const ORDER_STORAGE_KEY = "neon_order_id";
-const ORDER_POLL_INTERVAL_MS = 5000;
+const HOLD_TIMER_CARRY_KEY = "neon_hold_timer_seconds";
+const ORDER_POLL_INTERVAL_MS = 2000;
 
 async function fetchJSON(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, options);
@@ -92,13 +93,37 @@ function setStoredOrderID(orderID) {
   }
 }
 
+/** Preserve countdown across seats → payment navigation (read once on payment page). */
+function setCarriedHoldTimer(seconds) {
+  const value = Math.max(0, Math.floor(seconds || 0));
+  if (value > 0) {
+    sessionStorage.setItem(HOLD_TIMER_CARRY_KEY, String(value));
+  } else {
+    sessionStorage.removeItem(HOLD_TIMER_CARRY_KEY);
+  }
+}
+
+function takeCarriedHoldTimer() {
+  const raw = sessionStorage.getItem(HOLD_TIMER_CARRY_KEY);
+  sessionStorage.removeItem(HOLD_TIMER_CARRY_KEY);
+  const parsed = parseInt(raw || "0", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
 function isTerminalStatus(status) {
   return status === "CONFIRMED" || status === "EXPIRED" || status === "CANCELLED" || status === "PAYMENT_FAILED";
 }
 
 function orderSeatsSignature(status, heldSeatIDs) {
   const seats = heldSeatIDs || [];
-  return `${status}|${[...seats].sort().join(",")}`;
+  return `${status}|${heldSeatsSignature(heldSeatIDs)}`;
+}
+
+/** Sorted seat-id list for comparing holds without order/status noise. */
+function heldSeatsSignature(heldSeatIDs) {
+  const seats =
+    heldSeatIDs instanceof Set ? [...heldSeatIDs] : heldSeatIDs || [];
+  return [...seats].sort().join(",");
 }
 
 /** Hold timer runs only after at least one seat is held (not in bare CREATED). */
