@@ -225,7 +225,8 @@ Grade A+ progress:
 - [ ] 3. Enhance (Critical → High → Medium per role)
 - [ ] 4. Partial re-review (roles below A+; full review every 3 cycles)
 - [ ] 5. Verify (tests + grade table)
-- [ ] 6. Loop decision (all A+ / continue)
+- [ ] 6. Loop decision (all A+ / ask permission)
+- [ ] 7. Permission gate — wait for user approval before next cycle
 ```
 
 ### 0. Baseline
@@ -282,9 +283,10 @@ After enhance phase:
 | Condition | Next action |
 |-----------|-------------|
 | All seven grades = **A+** | Stop; set `Verdict: A+ READY`; report grade table |
-| Any grade < A+ + `/loop /grade-a-plus` active | Enhance → partial re-review → re-arm wake |
+| Any grade < A+ | Report grade table + blockers; **ask user for permission** to run one more cycle; do **not** re-arm wake or continue until approved |
+| User approves next cycle | Run next cycle (steps 1–7), then permission gate again |
 | Tests fail | Fix before re-grade; do not accept A+ with red tests |
-| User says stop | Report current grades and open blockers |
+| User declines or says stop | Report current grades and open blockers; set `Loop mode: stopped` |
 
 ### Grade A+ reporting
 
@@ -299,6 +301,11 @@ End each cycle with:
 **Below A+:** role → grade → top blocker
 **Enhanced this cycle:** list commits/findings
 **Next:** role/fix list or "none — all A+"
+
+---
+
+**Proceed to one more cycle?** (yes / no)
+If any grade is below A+, end every cycle report with this question. Do not start the next cycle or re-arm `/loop` until the user explicitly approves.
 ```
 
 ## Parallel expert mode (optional for `/review-loop` only)

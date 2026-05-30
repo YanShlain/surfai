@@ -27,7 +27,7 @@ Prefer targeted `@` file references or the table above over repo-wide semantic s
 | Invoke | Purpose |
 |--------|---------|
 | `/grade-a-plus` | Enhance until all 7 expert grades are A+; one cycle |
-| `/loop /grade-a-plus` | Repeat until every expert grade is A+ |
+| `/loop /grade-a-plus` | Repeat until every expert grade is A+; **asks permission before each new cycle** |
 | `/deliver-ready` | Fix issues from `docs/final_review.md`, then 7 subagent experts; one delivery cycle |
 | `/loop /deliver-ready` | Repeat until READY (self-paced) |
 | `/review-loop` | Full multi-expert review cycle |

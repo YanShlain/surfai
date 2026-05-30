@@ -10,7 +10,9 @@ Run the Neon **grade loop** until every expert role scores **A+**. Read and foll
 4. **Enhance** — For every role below A+, resolve blocking findings using [developer-fix.md](../skills/review-loop/roles/developer-fix.md) and `/developer` (one finding → minimal enhancement → green tests → commit). Fix **Critical, High, and Medium** that block A+; address Low when trivial. Re-run targeted tests for the touched area.
 5. **Re-review (partial)** — Re-launch subagents **only for roles that were below A+** this cycle (read-only). Full seven-way review every 3 cycles or when any role was F/D/C.
 6. **Verify** — `go test ./... -count=1 -timeout 120s`; refresh grades in state.
-7. **Decide** — If all seven experts grade **A+**, report **A+ READY**, update `docs/alternative_review.md` or `docs/final_review.md` summary if grades changed materially, and **stop**. Otherwise report grades table, blocking findings per role, and tell the user to run `/loop /grade-a-plus` to continue.
+7. Update status - update `docs/final_review.md` summary with the current status.
+8. **Decide** — If all seven experts grade **A+**, report **A+ READY** and **stop**.
+9. **Permission gate** — If any grade is still below **A+**, end the turn with the grade summary and **ask the user for permission** to run one more cycle. Do **not** start the next cycle, re-arm `/loop`, or schedule a background wake until the user explicitly approves (e.g. "yes", "continue", `/loop /grade-a-plus`). If the user declines or does not reply, stop and leave current grades/blockers in `docs/review_loop_state.md`.
 
 ## Loop until all A+
 
@@ -18,7 +20,7 @@ Run the Neon **grade loop** until every expert role scores **A+**. Read and foll
 /loop /grade-a-plus
 ```
 
-Self-paced: after each cycle with any grade below A+, enhance → partial re-review → re-arm next wake (see `/loop` skill). Stop when all grades are A+ or the user says stop.
+Self-paced: each approved cycle runs steps 1–8, then step 9 (permission gate). After the user approves, run the next cycle; do not auto-continue without approval. Stop when all grades are A+, the user declines, or the user says stop.
 
 ## Exit gates (all required)
 
