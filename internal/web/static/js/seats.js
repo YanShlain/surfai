@@ -175,7 +175,15 @@
     hideError(errorEl);
     payBtn.disabled = true;
     try {
-      const order = await syncSeatsToServer();
+      let order;
+      if (orderStatus === "SEATS_HELD" && selectedSeats.size > 0) {
+        order = await fetchJSON(`/orders/${encodeURIComponent(orderID)}`);
+        if (!heldSeatsMatch(order.held_seat_ids, selectedSeats)) {
+          order = await syncSeatsToServer();
+        }
+      } else {
+        order = await syncSeatsToServer();
+      }
       if (order.status !== "SEATS_HELD" || !(order.held_seat_ids || []).length) {
         showError(errorEl, "Hold at least one seat before proceeding to payment.");
         return;
@@ -186,6 +194,12 @@
     } finally {
       updatePayButton({ status: orderStatus, held_seat_ids: [...selectedSeats] });
     }
+  }
+
+  function heldSeatsMatch(serverSeatIDs, localSeats) {
+    const server = [...(serverSeatIDs || [])].sort().join(",");
+    const local = [...localSeats].sort().join(",");
+    return server === local;
   }
 
   async function loadSeatMap(id, { silent = false } = {}) {

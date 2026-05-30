@@ -2,6 +2,7 @@ package booking
 
 import (
 	"errors"
+	"slices"
 	"time"
 
 	"go.temporal.io/sdk/temporal"
@@ -74,10 +75,13 @@ func BookingWorkflow(ctx workflow.Context, input WorkflowInput) error {
 			if state.Status == domain.OrderStatusAwaitingPayment {
 				return StatusResponse{}, temporal.NewApplicationError("payment in progress", "payment_in_progress")
 			}
+			seatsChanged := !seatSetsEqual(state.HeldSeatIDs, req.SeatIDs)
 			if err := applySeatUpdate(activityCtx(updateCtx), &state, req.SeatIDs); err != nil {
 				return StatusResponse{}, err
 			}
-			notifyTimerReset()
+			if seatsChanged {
+				notifyTimerReset()
+			}
 			return state.toResponse(workflow.Now(ctx)), nil
 		},
 	); err != nil {
@@ -304,6 +308,16 @@ func expireOrder(ctx workflow.Context, state *workflowState) error {
 func applySeatUpdate(ctx workflow.Context, state *workflowState, seatIDs []string) error {
 	state.LastError = ""
 
+	seatsChanged := !seatSetsEqual(state.HeldSeatIDs, seatIDs)
+	if !seatsChanged {
+		if len(seatIDs) == 0 {
+			state.Status = domain.OrderStatusCreated
+		} else if state.Status != domain.OrderStatusSeatsHeld {
+			state.Status = domain.OrderStatusSeatsHeld
+		}
+		return nil
+	}
+
 	releaseIDs := cloneStrings(state.HeldSeatIDs)
 	holdIDs := cloneStrings(seatIDs)
 
@@ -321,14 +335,23 @@ func applySeatUpdate(ctx workflow.Context, state *workflowState, seatIDs []strin
 	state.HeldSeatIDs = cloneStrings(seatIDs)
 	if len(seatIDs) == 0 {
 		state.Status = domain.OrderStatusCreated
-		// Clear the timer when all seats are released back to CREATED.
 		state.TimerDeadline = time.Time{}
 	} else {
 		state.Status = domain.OrderStatusSeatsHeld
-		// Start or reset the 15-minute hold timer on every seat selection.
 		state.TimerDeadline = workflow.Now(ctx).Add(state.HoldDuration)
 	}
 	return nil
+}
+
+func seatSetsEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	aSorted := cloneStrings(a)
+	bSorted := cloneStrings(b)
+	slices.Sort(aSorted)
+	slices.Sort(bSorted)
+	return slices.Equal(aSorted, bSorted)
 }
 
 func releaseHeldSeats(ctx workflow.Context, state *workflowState) error {

@@ -175,6 +175,21 @@ func TestU_B2_SeatChangeResetsTimer(t *testing.T) {
 	executeBooking(env, "O1", memory.Flight1ID, hold)
 }
 
+// U-B2b: Idempotent UpdateSeats with same seats does not reset the hold timer.
+func TestU_B2b_IdempotentSeatPatchPreservesTimer(t *testing.T) {
+	_, env := newSuite(t)
+	hold := 15 * time.Minute
+
+	scheduleUpdateSeats(t, env, 0, []string{"1A"}, nil)
+	scheduleUpdateSeats(t, env, 8*time.Minute, []string{"1A"}, func(resp booking.StatusResponse) {
+		require.Equal(t, domain.OrderStatusSeatsHeld, resp.Status)
+		require.InDelta(t, 7*60, float64(resp.TimerRemainingSeconds), 3)
+	})
+	scheduleCancel(t, env, 8*time.Minute+time.Millisecond, nil)
+
+	executeBooking(env, "O1", memory.Flight1ID, hold)
+}
+
 // U-B3: Holding 1A — UpdateSeats [2A] — 1A released; 2A held
 func TestU_B3_SeatSwapReleasesPreviousSeats(t *testing.T) {
 	s, env := newSuite(t)
