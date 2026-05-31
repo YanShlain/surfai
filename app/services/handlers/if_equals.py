@@ -5,6 +5,16 @@ from app.services.handlers.base import ExecutionContext, HandlerOutcome, _resolv
 async def handle_if_equals(
     node: IfEqualsNode, context: ExecutionContext
 ) -> HandlerOutcome:
+    """Branch to on_true or on_false after comparing resolved operand values.
+
+    Args:
+        node: Branch node with left/right operands and target node ids.
+        context: Execution state used to resolve variable operands.
+
+    Returns:
+        HandlerOutcome: Next node id on match/mismatch, or error if a variable
+            referenced by an operand is undefined.
+    """
     left = _resolve_operand(node.left, context, node.id, "if_equals")
     if isinstance(left, HandlerOutcome):
         return left

@@ -144,6 +144,14 @@ class ExecutionResult:
 
     @classmethod
     def failure_from_validation(cls, errors: list[WorkflowError]) -> "ExecutionResult":
+        """Build a failure result from the first validation error.
+
+        Args:
+            errors: Non-empty list of structural validation errors.
+
+        Returns:
+            ExecutionResult: Failure with the first error and empty runtime state.
+        """
         first = errors[0]
         return cls(status="failure", error=first)
 
@@ -155,6 +163,16 @@ class ExecutionResult:
         variables: dict[str, VariableValue] | None = None,
         prints: list[str] | None = None,
     ) -> "ExecutionResult":
+        """Build a failure result preserving partial execution state.
+
+        Args:
+            error: Runtime error that stopped the workflow.
+            variables: Variables collected before the failing step.
+            prints: Print output collected before the failing step.
+
+        Returns:
+            ExecutionResult: Failure with optional partial variables and prints.
+        """
         return cls(
             status="failure",
             variables=variables or {},
@@ -169,4 +187,13 @@ class ExecutionResult:
         variables: dict[str, VariableValue],
         prints: list[str],
     ) -> "ExecutionResult":
+        """Build a successful execution result.
+
+        Args:
+            variables: Final workflow variable bindings.
+            prints: Collected print node output lines.
+
+        Returns:
+            ExecutionResult: Success with final state and no error.
+        """
         return cls(status="success", variables=variables, prints=prints)

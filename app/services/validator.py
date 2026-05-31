@@ -25,11 +25,22 @@ BRANCH_ACTIONS = {"if_equals", "if_file_exists"}
 
 @dataclass
 class WorkflowValidator:
+    """Validates workflow graph structure, routing rules, and call_service limits."""
+
     settings: Settings
 
     def validate(self, workflow: WorkflowDefinition) -> ValidationResult:
+        """Run all structural checks against a workflow definition.
+
+        Args:
+            workflow: Workflow graph submitted for execution.
+
+        Returns:
+            ValidationResult: ``ok=True`` when no errors were found.
+        """
         errors: list[WorkflowError] = []
 
+        # --- Schema and non-empty graph ---
         if workflow.schema_version != 1:
             errors.append(
                 WorkflowError(
@@ -47,6 +58,7 @@ class WorkflowValidator:
             )
             return ValidationResult.invalid(errors)
 
+        # --- Index nodes and validate entry ---
         node_map: dict[str, Node] = {}
         for node in workflow.nodes:
             if node.id in node_map:
@@ -67,9 +79,11 @@ class WorkflowValidator:
                 )
             )
 
+        # --- Per-node routing and action rules ---
         for node in workflow.nodes:
             errors.extend(self._validate_node(node, node_map))
 
+        # --- Graph-level reachability and cycle checks ---
         if not errors:
             exit_error = self._validate_reachable_exit(workflow, node_map)
             if exit_error:
@@ -87,6 +101,15 @@ class WorkflowValidator:
     def _validate_node(
         self, node: Node, node_map: dict[str, Node]
     ) -> list[WorkflowError]:
+        """Validate routing fields and action-specific constraints for one node.
+
+        Args:
+            node: Node under validation.
+            node_map: All workflow nodes keyed by id.
+
+        Returns:
+            list[WorkflowError]: Errors found for this node, possibly empty.
+        """
         errors: list[WorkflowError] = []
         raw = self._node_routing_fields(node)
 
@@ -95,6 +118,7 @@ class WorkflowValidator:
         has_on_false = raw["on_false"] is not None
         has_branch = has_on_true or has_on_false
 
+        # --- Reject mixed linear and branch routing ---
         if has_next and has_branch:
             errors.append(
                 WorkflowError(
@@ -109,6 +133,7 @@ class WorkflowValidator:
             )
             return errors
 
+        # --- Exit nodes must not route further ---
         if isinstance(node, ExitNode):
             if has_next or has_on_true or has_on_false:
                 errors.append(
@@ -121,6 +146,7 @@ class WorkflowValidator:
                 )
             return errors
 
+        # --- Linear action routing ---
         if node.action in LINEAR_ACTIONS:
             if not has_next:
                 errors.append(
@@ -148,6 +174,7 @@ class WorkflowValidator:
                     self._validate_ref(node.next, node.id, node_map)  # type: ignore[attr-defined]
                 )
 
+        # --- Branch action routing ---
         if node.action in BRANCH_ACTIONS:
             if has_next:
                 errors.append(
@@ -179,6 +206,7 @@ class WorkflowValidator:
                     self._validate_ref(branch_node.on_false, node.id, node_map)
                 )
 
+        # --- Action-specific constraints ---
         if isinstance(node, PrintNode) and not node.parts:
             errors.append(
                 WorkflowError(
@@ -195,7 +223,17 @@ class WorkflowValidator:
         return errors
 
     def _validate_call_service(self, node: CallServiceNode) -> list[WorkflowError]:
+        """Validate URL scheme and call_service timeout/retry limits.
+
+        Args:
+            node: call_service node under validation.
+
+        Returns:
+            list[WorkflowError]: Errors for invalid URL or exceeded limits.
+        """
         errors: list[WorkflowError] = []
+
+        # --- URL must be http(s) with a host ---
         parsed = urlparse(node.url)
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
             errors.append(
@@ -207,6 +245,7 @@ class WorkflowValidator:
                 )
             )
 
+        # --- Per-node limits must not exceed configured caps ---
         if node.timeout_seconds is not None:
             if node.timeout_seconds > self.settings.call_service_max_timeout_seconds:
                 errors.append(
@@ -240,6 +279,16 @@ class WorkflowValidator:
     def _validate_ref(
         self, ref: str, node_id: str, node_map: dict[str, Node]
     ) -> list[WorkflowError]:
+        """Ensure a routing reference points to an existing node id.
+
+        Args:
+            ref: Target node id from ``next``, ``on_true``, or ``on_false``.
+            node_id: Source node id for error reporting.
+            node_map: All workflow nodes keyed by id.
+
+        Returns:
+            list[WorkflowError]: Single error when ``ref`` is unknown, else empty.
+        """
         if ref not in node_map:
             return [
                 WorkflowError(
@@ -251,6 +300,14 @@ class WorkflowValidator:
         return []
 
     def _node_routing_fields(self, node: Node) -> dict:
+        """Extract routing field values normalized across node types.
+
+        Args:
+            node: Workflow node whose routing fields are inspected.
+
+        Returns:
+            dict: Keys ``next``, ``on_true``, and ``on_false`` with values or None.
+        """
         if isinstance(node, ExitNode):
             return {"next": None, "on_true": None, "on_false": None}
         if isinstance(node, (IfEqualsNode, IfFileExistsNode)):
@@ -266,6 +323,14 @@ class WorkflowValidator:
         }
 
     def _outgoing(self, node: Node) -> list[str]:
+        """Return successor node ids for graph traversal.
+
+        Args:
+            node: Node whose outgoing edges are needed.
+
+        Returns:
+            list[str]: Target node ids for linear or branch nodes; empty for exit.
+        """
         if isinstance(node, ExitNode):
             return []
         if isinstance(node, (IfEqualsNode, IfFileExistsNode)):
@@ -275,6 +340,15 @@ class WorkflowValidator:
     def _detect_cycle(
         self, workflow: WorkflowDefinition, node_map: dict[str, Node]
     ) -> WorkflowError | None:
+        """Detect cycles in the workflow graph via DFS.
+
+        Args:
+            workflow: Workflow whose entry node starts traversal.
+            node_map: All workflow nodes keyed by id.
+
+        Returns:
+            WorkflowError | None: Cycle error when found, otherwise None.
+        """
         if workflow.entry not in node_map:
             return None
 
@@ -282,6 +356,14 @@ class WorkflowValidator:
         stack: set[str] = set()
 
         def dfs(node_id: str) -> bool:
+            """Depth-first search helper; returns True when a cycle is detected.
+
+            Args:
+                node_id: Current node id being visited.
+
+            Returns:
+                bool: True if ``node_id`` is re-entered on the active DFS stack.
+            """
             if node_id in stack:
                 return True
             if node_id in visited:
@@ -305,6 +387,15 @@ class WorkflowValidator:
     def _validate_reachable_exit(
         self, workflow: WorkflowDefinition, node_map: dict[str, Node]
     ) -> WorkflowError | None:
+        """Ensure at least one exit node is reachable from the entry node.
+
+        Args:
+            workflow: Workflow whose reachability is checked.
+            node_map: All workflow nodes keyed by id.
+
+        Returns:
+            WorkflowError | None: Reachability error when no exit is reachable.
+        """
         if workflow.entry not in node_map:
             return WorkflowError(
                 code="NO_REACHABLE_EXIT",
@@ -318,6 +409,7 @@ class WorkflowValidator:
                 message="Workflow must contain at least one exit node",
             )
 
+        # --- Breadth-first search from entry ---
         visited: set[str] = set()
         queue = [workflow.entry]
 

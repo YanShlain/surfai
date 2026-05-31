@@ -11,10 +11,21 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class WorkflowExecutor:
+    """Walks a validated workflow graph and dispatches nodes to action handlers."""
+
     file_reader: IFileReader
     http_client: object
 
     async def execute(self, workflow: WorkflowDefinition) -> ExecutionResult:
+        """Execute workflow nodes starting at ``workflow.entry`` until exit or error.
+
+        Args:
+            workflow: Validated workflow definition with indexed nodes.
+
+        Returns:
+            ExecutionResult: Success or failure with variables, prints, and optional error.
+        """
+        # --- Initialize execution state ---
         node_map: dict[str, Node] = {n.id: n for n in workflow.nodes}
         context = ExecutionContext(
             variables={},
@@ -25,6 +36,7 @@ class WorkflowExecutor:
 
         current_id = workflow.entry
         while True:
+            # --- Resolve current node ---
             node = node_map.get(current_id)
             if node is None:
                 return ExecutionResult.failure_from_error(
@@ -50,6 +62,7 @@ class WorkflowExecutor:
                     prints=list(context.prints),
                 )
 
+            # --- Dispatch handler and interpret outcome ---
             outcome = await handler(node, context)
 
             if outcome.kind == "error":

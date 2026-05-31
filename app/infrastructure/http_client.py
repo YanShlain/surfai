@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ExternalRestHttpClient:
+    """POST JSON to external HTTP services with timeout retries and validation."""
+
     settings: Settings
     client: httpx.AsyncClient | None = None
 
@@ -27,6 +29,22 @@ class ExternalRestHttpClient:
         timeout_seconds: float | None = None,
         max_retries: int | None = None,
     ) -> dict[str, Any]:
+        """POST JSON to an external URL and return a parsed object response.
+
+        Args:
+            url: Target HTTP(S) endpoint.
+            body: JSON-serializable request payload.
+            timeout_seconds: Per-attempt timeout override; defaults to settings.
+            max_retries: Extra retries after the first attempt; defaults to settings.
+
+        Returns:
+            dict[str, Any]: Parsed JSON object from a successful 2xx response.
+
+        Raises:
+            CallServiceError: On timeout exhaustion, connection failure, HTTP error,
+                or non-object JSON response.
+        """
+        # --- Resolve retry and timeout policy ---
         per_attempt_timeout = timeout_seconds or self.settings.call_service_timeout_seconds
         extra_retries = (
             max_retries
@@ -40,6 +58,7 @@ class ExternalRestHttpClient:
 
         try:
             for attempt in range(1, max_attempts + 1):
+                # --- Execute POST attempt ---
                 try:
                     response = await client.post(
                         url,
@@ -85,6 +104,7 @@ class ExternalRestHttpClient:
                         )
                     ) from exc
 
+                # --- Validate HTTP status ---
                 if not (200 <= response.status_code < 300):
                     raise CallServiceError(
                         WorkflowError(
@@ -95,6 +115,7 @@ class ExternalRestHttpClient:
                         )
                     )
 
+                # --- Parse JSON body ---
                 content_type = response.headers.get("content-type", "")
                 if "application/json" not in content_type:
                     try:

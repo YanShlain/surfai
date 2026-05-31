@@ -12,10 +12,23 @@ logger = logging.getLogger(__name__)
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
+    """Logs inbound HTTP requests and outbound responses with correlation IDs."""
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        """Log request metadata, invoke the handler, and log the response.
+
+        Args:
+            request: Incoming Starlette request.
+            call_next: Next middleware or route handler in the chain.
+
+        Returns:
+            Response: Handler response with ``X-Request-ID`` echoed on the way out.
+        """
+        # --- Assign or reuse request correlation id ---
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
         request.state.request_id = request_id
 
+        # --- Capture and log request body ---
         body_bytes = await request.body()
         body_log: dict | str | None
         try:
@@ -33,15 +46,19 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             },
         )
 
+        # --- Re-wrap body so downstream handlers can read it again ---
         async def receive():
+            """Replay the cached request body to the ASGI receive channel."""
             return {"type": "http.request", "body": body_bytes, "more_body": False}
 
         request = Request(request.scope, receive)
 
+        # --- Invoke handler and measure duration ---
         start = time.perf_counter()
         response = await call_next(request)
         duration_ms = round((time.perf_counter() - start) * 1000, 2)
 
+        # --- Buffer response body for logging ---
         response_body = b""
         async for chunk in response.body_iterator:
             response_body += chunk

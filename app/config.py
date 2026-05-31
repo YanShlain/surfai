@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Settings:
+    """Immutable runtime configuration for workflow execution and HTTP calls."""
+
     workflow_fs_root: str
     call_service_timeout_seconds: float
     call_service_max_timeout_seconds: float
@@ -14,6 +16,11 @@ class Settings:
 
 
 def load_settings() -> Settings:
+    """Load application settings from environment variables with safe defaults.
+
+    Returns:
+        Settings: Resolved configuration for filesystem sandbox and call_service limits.
+    """
     return Settings(
         workflow_fs_root=os.environ.get("WORKFLOW_FS_ROOT", "."),
         call_service_timeout_seconds=float(

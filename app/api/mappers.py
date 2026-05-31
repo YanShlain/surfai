@@ -35,18 +35,42 @@ from app.domain.models import (
 
 
 def _map_operand(dto):
+    """Map an API operand DTO to its domain counterpart.
+
+    Args:
+        dto: OperandLiteralDTO or OperandVariableDTO from the request body.
+
+    Returns:
+        OperandLiteral | OperandVariable: Domain operand for condition evaluation.
+    """
     if dto.type == "literal":
         return OperandLiteral(type="literal", value=dto.value)
     return OperandVariable(type="variable", name=dto.name)
 
 
 def _map_print_part(dto):
+    """Map a print-part DTO to its domain counterpart.
+
+    Args:
+        dto: PrintPartTextDTO or PrintPartVariableDTO from the request body.
+
+    Returns:
+        PrintPartText | PrintPartVariable: Domain print fragment.
+    """
     if dto.type == "text":
         return PrintPartText(type="text", value=dto.value)
     return PrintPartVariable(type="variable", name=dto.name)
 
 
 def _map_node(dto) -> Node:
+    """Map a workflow node DTO to the matching domain node type.
+
+    Args:
+        dto: Typed node DTO whose ``action`` field selects the domain class.
+
+    Returns:
+        Node: Concrete domain node matching the DTO action.
+    """
     if dto.action == "set_variable":
         return SetVariableNode(
             id=dto.id,
@@ -104,6 +128,14 @@ def _map_node(dto) -> Node:
 
 
 def to_domain(request: ExecuteRequest) -> WorkflowDefinition:
+    """Convert an execute request into a domain workflow definition.
+
+    Args:
+        request: API payload containing the workflow graph.
+
+    Returns:
+        WorkflowDefinition: Normalized workflow ready for validation and execution.
+    """
     wf = request.workflow
     return WorkflowDefinition(
         schema_version=wf.schema_version,
@@ -113,6 +145,14 @@ def to_domain(request: ExecuteRequest) -> WorkflowDefinition:
 
 
 def _error_to_dto(error: WorkflowError) -> WorkflowErrorDTO:
+    """Map a domain workflow error to its API response shape.
+
+    Args:
+        error: Domain error produced during validation or execution.
+
+    Returns:
+        WorkflowErrorDTO: Serializable error for the HTTP response body.
+    """
     return WorkflowErrorDTO(
         code=error.code,
         message=error.message,
@@ -123,6 +163,14 @@ def _error_to_dto(error: WorkflowError) -> WorkflowErrorDTO:
 
 
 def to_response(result: ExecutionResult) -> ExecuteResponse:
+    """Convert a domain execution result to the API response schema.
+
+    Args:
+        result: Outcome from workflow validation or execution.
+
+    Returns:
+        ExecuteResponse: Response body returned by POST /v1/workflows/execute.
+    """
     return ExecuteResponse(
         status=result.status,
         variables=result.variables,

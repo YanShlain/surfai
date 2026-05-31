@@ -3,6 +3,15 @@ from app.services.handlers.base import ExecutionContext, HandlerOutcome, _resolv
 
 
 async def handle_print(node: PrintNode, context: ExecutionContext) -> HandlerOutcome:
+    """Concatenate print parts and append the line to the execution print log.
+
+    Args:
+        node: Print node with text and variable parts.
+        context: Execution state receiving the appended print line.
+
+    Returns:
+        HandlerOutcome: Next node id, or error when a referenced variable is undefined.
+    """
     parts: list[str] = []
     for part in node.parts:
         if isinstance(part, PrintPartText):
