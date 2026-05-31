@@ -195,8 +195,7 @@ func TestU_B3_SeatSwapReleasesPreviousSeats(t *testing.T) {
 	s, env := newSuite(t)
 	hold := 30 * time.Second
 
-	scheduleUpdateSeats(t, env, 0, []string{"1A"}, nil)
-	scheduleUpdateSeats(t, env, 10*time.Millisecond, []string{"2A"}, func(resp booking.StatusResponse) {
+	assertSwap := func(resp booking.StatusResponse) {
 		require.Equal(t, []string{"2A"}, resp.HeldSeatIDs)
 		list, err := s.seats.ListByFlight(t.Context(), memory.Flight1ID)
 		require.NoError(t, err)
@@ -209,7 +208,23 @@ func TestU_B3_SeatSwapReleasesPreviousSeats(t *testing.T) {
 				require.Equal(t, "O1", seat.OrderID)
 			}
 		}
-	})
+	}
+
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(booking.UpdateUpdateSeats, "update-1a", &testsuite.TestUpdateCallback{
+			OnReject: func(err error) { require.NoError(t, err) },
+			OnComplete: func(_ interface{}, err error) {
+				require.NoError(t, err)
+				env.UpdateWorkflow(booking.UpdateUpdateSeats, "update-2a", &testsuite.TestUpdateCallback{
+					OnReject: func(err error) { require.NoError(t, err) },
+					OnComplete: func(result interface{}, err error) {
+						require.NoError(t, err)
+						assertSwap(result.(booking.StatusResponse))
+					},
+				}, booking.UpdateSeatsRequest{SeatIDs: []string{"2A"}})
+			},
+		}, booking.UpdateSeatsRequest{SeatIDs: []string{"1A"}})
+	}, 0)
 	scheduleCancel(t, env, 500*time.Millisecond, nil)
 
 	executeBooking(env, "O1", memory.Flight1ID, hold)
