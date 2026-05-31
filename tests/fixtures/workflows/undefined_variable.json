@@ -1,0 +1,19 @@
+{
+  "workflow": {
+    "schema_version": 1,
+    "entry": "print",
+    "nodes": [
+      {
+        "id": "print",
+        "action": "print",
+        "parts": [{ "type": "variable", "name": "missing" }],
+        "next": "done"
+      },
+      {
+        "id": "done",
+        "action": "exit",
+        "status": "success"
+      }
+    ]
+  }
+}

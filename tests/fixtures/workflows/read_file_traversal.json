@@ -1,0 +1,20 @@
+{
+  "workflow": {
+    "schema_version": 1,
+    "entry": "read",
+    "nodes": [
+      {
+        "id": "read",
+        "action": "read_file",
+        "path": "../secret.txt",
+        "result_variable": "fileContent",
+        "next": "done"
+      },
+      {
+        "id": "done",
+        "action": "exit",
+        "status": "success"
+      }
+    ]
+  }
+}

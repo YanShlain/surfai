@@ -1,0 +1,27 @@
+{
+  "workflow": {
+    "schema_version": 1,
+    "entry": "bad",
+    "nodes": [
+      {
+        "id": "bad",
+        "action": "set_variable",
+        "name": "x",
+        "value": 1,
+        "next": "yes",
+        "on_true": "yes",
+        "on_false": "no"
+      },
+      {
+        "id": "yes",
+        "action": "exit",
+        "status": "success"
+      },
+      {
+        "id": "no",
+        "action": "exit",
+        "status": "failure"
+      }
+    ]
+  }
+}

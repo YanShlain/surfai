@@ -1,0 +1,33 @@
+{
+  "workflow": {
+    "schema_version": 1,
+    "entry": "set",
+    "nodes": [
+      {
+        "id": "set",
+        "action": "set_variable",
+        "name": "flag",
+        "value": "yes",
+        "next": "check"
+      },
+      {
+        "id": "check",
+        "action": "if_equals",
+        "left": { "type": "variable", "name": "flag" },
+        "right": { "type": "literal", "value": "yes" },
+        "on_true": "yes-exit",
+        "on_false": "no-exit"
+      },
+      {
+        "id": "yes-exit",
+        "action": "exit",
+        "status": "success"
+      },
+      {
+        "id": "no-exit",
+        "action": "exit",
+        "status": "failure"
+      }
+    ]
+  }
+}

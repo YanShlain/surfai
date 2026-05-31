@@ -1,0 +1,21 @@
+{
+  "workflow": {
+    "schema_version": 1,
+    "entry": "fetch",
+    "nodes": [
+      {
+        "id": "fetch",
+        "action": "call_service",
+        "url": "https://api.example.com/v1/foo",
+        "body": { "key": "value" },
+        "result_variable": "apiResult",
+        "next": "done"
+      },
+      {
+        "id": "done",
+        "action": "exit",
+        "status": "success"
+      }
+    ]
+  }
+}

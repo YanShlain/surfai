@@ -1,0 +1,13 @@
+{
+  "workflow": {
+    "schema_version": 1,
+    "entry": "fail",
+    "nodes": [
+      {
+        "id": "fail",
+        "action": "exit",
+        "status": "failure"
+      }
+    ]
+  }
+}

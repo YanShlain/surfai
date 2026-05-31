@@ -1,0 +1,29 @@
+{
+  "workflow": {
+    "schema_version": 1,
+    "entry": "set",
+    "nodes": [
+      {
+        "id": "set",
+        "action": "set_variable",
+        "name": "msg",
+        "value": "Hello ",
+        "next": "print"
+      },
+      {
+        "id": "print",
+        "action": "print",
+        "parts": [
+          { "type": "variable", "name": "msg" },
+          { "type": "text", "value": "World" }
+        ],
+        "next": "done"
+      },
+      {
+        "id": "done",
+        "action": "exit",
+        "status": "success"
+      }
+    ]
+  }
+}

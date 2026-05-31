@@ -1,0 +1,6 @@
+{
+  "status": "success",
+  "variables": { "apiResult": "{\"ok\": true}" },
+  "prints": [],
+  "error": null
+}

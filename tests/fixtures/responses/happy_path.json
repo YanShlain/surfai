@@ -1,0 +1,6 @@
+{
+  "status": "success",
+  "variables": { "x": 1 },
+  "prints": ["1"],
+  "error": null
+}

@@ -1,0 +1,8 @@
+{
+  "status": "failure",
+  "error": {
+    "code": "UNDEFINED_VARIABLE",
+    "step_id": "print",
+    "action": "print"
+  }
+}
