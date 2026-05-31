@@ -10,11 +10,11 @@
 
 ## Checklist
 
-- [ ] 15-minute timer starts on order create; **refreshes** on every seat change (S-2)
+- [ ] 15-minute timer starts on **first seat hold**; **refreshes** on every seat-set change (S-2)
 - [ ] Timer **never pauses** during payment validation (S-4, I-D4)
 - [ ] Timer expiry wins over in-flight payment — seats released, payment rejected (S-4, U-D4)
 - [ ] Payment: Workflow **Update** (not signal+polling) for `SubmitPayment` only
-- [ ] 3 attempts per code, 3 methods per order — enforced in workflow state
+- [ ] **3 consecutive** payment validation failures → `PAYMENT_FAILED` (S-3); no per-method switch
 - [ ] Terminal states: `CONFIRMED`, `EXPIRED`, `CANCELLED`, `PAYMENT_FAILED` reachable and tested
 - [ ] Activities idempotent where Temporal may retry
 - [ ] `SwapHold` or equivalent atomic hold swap on seat change (U-B3)

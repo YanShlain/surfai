@@ -242,6 +242,7 @@
 
   async function toggleSeat(seatID) {
     if (orderStatus === "AWAITING_PAYMENT") {
+      showError(errorEl, "Payment in progress. Finish payment or wait for it to complete.");
       return;
     }
     if (selectedSeats.has(seatID)) {

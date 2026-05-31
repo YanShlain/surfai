@@ -138,9 +138,9 @@ func TestI_B0_NoTimerOnOrderCreate(t *testing.T) {
 	}
 }
 
-// I-B1: S-2 Timer refresh — timer_remaining_seconds ≈900 after seat change
+// I-B1: S-2 Timer refresh — after partial hold elapses, seat change resets timer to full window
 func TestI_B1_TimerRefreshAfterSeatChange(t *testing.T) {
-	t.Setenv("HOLD_DURATION", "15m")
+	t.Setenv("HOLD_DURATION", "30s")
 	srv := newTestApp(t)
 
 	order := createOrder(t, srv, memory.Flight1ID)
@@ -154,8 +154,21 @@ func TestI_B1_TimerRefreshAfterSeatChange(t *testing.T) {
 	if body.Status != "SEATS_HELD" {
 		t.Fatalf("status = %q, want SEATS_HELD", body.Status)
 	}
-	if body.TimerRemainingSeconds < 895 || body.TimerRemainingSeconds > 900 {
-		t.Fatalf("timer_remaining_seconds = %d, want ~900", body.TimerRemainingSeconds)
+	if body.TimerRemainingSeconds < 25 || body.TimerRemainingSeconds > 30 {
+		t.Fatalf("timer_remaining_seconds = %d, want ~30 after first hold", body.TimerRemainingSeconds)
+	}
+
+	time.Sleep(12 * time.Second)
+
+	resp2 := patchJSON(t, srv.URL+"/api/v1/orders/"+order.OrderID+"/seats", map[string]any{
+		"seat_ids": []string{"1A", "1B"},
+	})
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("patch seats after elapsed status = %d", resp2.StatusCode)
+	}
+	body2 := decodeOrder(t, resp2)
+	if body2.TimerRemainingSeconds < 25 || body2.TimerRemainingSeconds > 30 {
+		t.Fatalf("timer_remaining_seconds = %d after seat change, want ~30 (refreshed)", body2.TimerRemainingSeconds)
 	}
 }
 
